@@ -65,3 +65,41 @@ python -m wiim_lastfm.cli --config config.yaml run --dry-run
 
 The scrobbler submits after at least half the track has played, or after four minutes
 for longer tracks.
+
+## Tray App
+
+Run the Windows tray app:
+
+```powershell
+wiim-lastfm-tray --config config.yaml
+```
+
+The tray app starts the same scrobbler in the background, writes logs to:
+
+```text
+%LOCALAPPDATA%\WiimScrobbler\wiim-scrobbler.log
+```
+
+and keeps restart-safe duplicate protection state at:
+
+```text
+%LOCALAPPDATA%\WiimScrobbler\state.json
+```
+
+The log rotates at about 1 MB with five backups. The tray app also enforces a
+single running instance so a second startup or manual launch does not create
+duplicate scrobblers.
+
+The tray menu exposes actions to open the config, open the log, or quit.
+
+Install it to start when you sign in to Windows:
+
+```powershell
+.\scripts\install_startup.ps1
+```
+
+Remove the startup shortcut:
+
+```powershell
+.\scripts\uninstall_startup.ps1
+```
