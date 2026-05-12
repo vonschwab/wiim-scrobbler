@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import logging
 import threading
 import time
 from collections.abc import Iterable
@@ -86,11 +87,13 @@ class BackgroundScrobblerRunner:
             except Exception as exc:
                 name = getattr(poller, "name", "device")
                 message = f"{name}: {exc}"
+                logging.warning(message)
                 with self._lock:
                     self.error_count += 1
             if message:
                 with self._lock:
                     self.latest_message = message
+                logging.info(message)
                 print(message, flush=True)
 
 
