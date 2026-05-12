@@ -80,7 +80,17 @@ The tray app starts the same scrobbler in the background, writes logs to:
 %LOCALAPPDATA%\WiimScrobbler\wiim-scrobbler.log
 ```
 
-and exposes tray menu actions to open the config, open the log, or quit.
+and keeps restart-safe duplicate protection state at:
+
+```text
+%LOCALAPPDATA%\WiimScrobbler\state.json
+```
+
+The log rotates at about 1 MB with five backups. The tray app also enforces a
+single running instance so a second startup or manual launch does not create
+duplicate scrobblers.
+
+The tray menu exposes actions to open the config, open the log, or quit.
 
 Install it to start when you sign in to Windows:
 

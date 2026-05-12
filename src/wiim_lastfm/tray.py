@@ -4,14 +4,17 @@ import argparse
 import logging
 import os
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 from PIL import Image, ImageDraw
 import pystray
 
 from .runner import BackgroundScrobblerRunner
+from .single_instance import SingleInstance
 
 
 APP_NAME = "WiiM Last.fm Scrobbler"
+MUTEX_NAME = "Local\\WiimScrobblerTray"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,6 +23,18 @@ def main(argv: list[str] | None = None) -> int:
 
     log_path = default_log_path()
     configure_logging(log_path)
+    logging.info("Starting %s", APP_NAME)
+
+    instance = SingleInstance(MUTEX_NAME)
+    try:
+        acquired = instance.acquire()
+    except Exception:
+        logging.exception("Could not acquire single-instance guard")
+        return 2
+    if not acquired:
+        logging.warning("Tray app is already running")
+        instance.release()
+        return 2
 
     runner = runner_from_config_or_error(
         lambda: BackgroundScrobblerRunner.from_config(
@@ -35,8 +50,13 @@ def main(argv: list[str] | None = None) -> int:
         APP_NAME,
         menu=build_menu(runner, Path(args.config), log_path),
     )
-    icon.run()
-    return 0
+    try:
+        icon.run()
+        return 0
+    finally:
+        runner.stop(timeout=5)
+        instance.release()
+        logging.info("Stopped %s", APP_NAME)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,11 +134,17 @@ def default_log_path() -> Path:
 
 def configure_logging(log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        filename=log_path,
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=1_000_000,
+        backupCount=5,
+        encoding="utf-8",
     )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
 
 
 def open_path(path: Path) -> None:

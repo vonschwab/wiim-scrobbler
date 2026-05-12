@@ -1,6 +1,7 @@
 import logging
+from pathlib import Path
 
-from wiim_lastfm.runner import BackgroundScrobblerRunner, RunnerStatus
+from wiim_lastfm.runner import BackgroundScrobblerRunner, RunnerStatus, default_state_path
 
 
 class Poller:
@@ -67,3 +68,11 @@ def test_runner_start_and_stop_manage_background_thread():
     runner.stop(timeout=1)
 
     assert runner.status == RunnerStatus.STOPPED
+
+
+def test_default_state_path_uses_local_app_data(monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\Dylan\\AppData\\Local")
+
+    assert default_state_path() == Path(
+        "C:\\Users\\Dylan\\AppData\\Local\\WiimScrobbler\\state.json"
+    )

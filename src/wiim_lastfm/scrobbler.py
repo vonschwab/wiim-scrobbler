@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from .lastfm import LastFmClient
 from .models import Track
+from .state import ScrobbleState
 from .wiim import WiimClient
 
 
@@ -44,11 +45,13 @@ class DeviceScrobbler:
         wiim: WiimClient,
         lastfm: LastFmClient,
         dry_run: bool = False,
+        state: ScrobbleState | None = None,
     ) -> None:
         self.name = name
         self.wiim = wiim
         self.lastfm = lastfm
         self.dry_run = dry_run
+        self.state = state
         self.session: TrackSession | None = None
 
     def poll_once(self) -> str | None:
@@ -69,7 +72,12 @@ class DeviceScrobbler:
 
         decision = should_scrobble(track, status.position_ms)
         if decision == ScrobbleDecision.SCROBBLE and not self.session.scrobbled:
+            if self.state and self.state.has_recent_scrobble(track, self.session.started_at):
+                self.session.scrobbled = True
+                return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
             self._scrobble(track, self.session.started_at)
+            if self.state and not self.dry_run:
+                self.state.record_scrobble(track, self.session.started_at)
             self.session.scrobbled = True
             return f"{self.name}: scrobbled {track.artist} - {track.title}"
 

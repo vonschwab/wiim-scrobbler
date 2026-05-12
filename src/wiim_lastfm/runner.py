@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import enum
 import logging
+import os
 import threading
 import time
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Protocol
 
 from .config import get_devices, load_config
 from .lastfm import LastFmClient
 from .scrobbler import DeviceScrobbler
+from .state import ScrobbleState
 from .wiim import WiimClient
 
 
@@ -38,10 +41,15 @@ class BackgroundScrobblerRunner:
 
     @classmethod
     def from_config(
-        cls, config_path: str, interval: float = 20.0, dry_run: bool = False
+        cls,
+        config_path: str,
+        interval: float = 20.0,
+        dry_run: bool = False,
+        state_path: str | Path | None = None,
     ) -> BackgroundScrobblerRunner:
         config = load_config(config_path)
         lastfm = _lastfm_from_config(config, require_session=not dry_run)
+        state = ScrobbleState(state_path or default_state_path())
         return cls(
             [
                 DeviceScrobbler(
@@ -49,6 +57,7 @@ class BackgroundScrobblerRunner:
                     WiimClient(device.host),
                     lastfm,
                     dry_run=dry_run,
+                    state=state,
                 )
                 for device in get_devices(config)
             ],
@@ -118,3 +127,8 @@ def _lastfm_from_config(config: dict[str, object], require_session: bool) -> Las
         shared_secret=shared_secret,
         session_key=str(session_key) if session_key else None,
     )
+
+
+def default_state_path() -> Path:
+    base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    return base / "WiimScrobbler" / "state.json"

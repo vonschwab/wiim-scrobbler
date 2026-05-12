@@ -6,7 +6,9 @@ import time
 
 from .config import ConfigError, get_devices, load_config
 from .lastfm import LastFmClient
+from .runner import default_state_path
 from .scrobbler import DeviceScrobbler
+from .state import ScrobbleState
 from .upnp import PlayQueueClient
 from .wiim import WiimClient
 
@@ -123,8 +125,15 @@ def auth(config_path: str, token: str | None = None) -> int:
 def run(config_path: str, interval: float, dry_run: bool) -> int:
     config = load_config(config_path)
     lastfm = _lastfm_from_config(config, require_session=not dry_run)
+    state = ScrobbleState(default_state_path())
     scrobblers = [
-        DeviceScrobbler(device.name, WiimClient(device.host), lastfm, dry_run=dry_run)
+        DeviceScrobbler(
+            device.name,
+            WiimClient(device.host),
+            lastfm,
+            dry_run=dry_run,
+            state=state,
+        )
         for device in get_devices(config)
     ]
 
