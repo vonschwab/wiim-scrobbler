@@ -78,6 +78,10 @@ class BackgroundScrobblerRunner:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                self.status = RunnerStatus.STOPPING
+                self.latest_message = "Stopping"
+                return
         self.status = RunnerStatus.STOPPED
         self.latest_message = "Stopped"
 

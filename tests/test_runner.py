@@ -76,3 +76,13 @@ def test_default_state_path_uses_local_app_data(monkeypatch):
     assert default_state_path() == Path(
         "C:\\Users\\Dylan\\AppData\\Local\\WiimScrobbler\\state.json"
     )
+
+
+def test_stop_reports_stopping_when_thread_does_not_exit():
+    runner = BackgroundScrobblerRunner([Poller([])], interval=60)
+    runner._thread = type("Thread", (), {"join": lambda self, timeout=None: None, "is_alive": lambda self: True})()
+
+    runner.stop(timeout=0)
+
+    assert runner.status == RunnerStatus.STOPPING
+    assert runner.latest_message == "Stopping"

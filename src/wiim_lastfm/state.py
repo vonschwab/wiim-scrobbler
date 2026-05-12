@@ -23,9 +23,14 @@ class ScrobbleState:
     def has_recent_scrobble(self, track: Track, started_at: int) -> bool:
         key = _track_key(track)
         for item in self._data["scrobbles"]:
+            if not isinstance(item, dict):
+                continue
             if item.get("track_key") != key:
                 continue
-            if abs(int(item.get("started_at", 0)) - started_at) <= self.duplicate_window_seconds:
+            item_started_at = _safe_int(item.get("started_at"))
+            if item_started_at is None:
+                continue
+            if abs(item_started_at - started_at) <= self.duplicate_window_seconds:
                 return True
         return False
 
@@ -47,11 +52,16 @@ class ScrobbleState:
 
     def prune(self, now: int | None = None) -> None:
         cutoff = (now or int(time.time())) - self.retention_seconds
-        self._data["scrobbles"] = [
-            item
-            for item in self._data["scrobbles"]
-            if int(item.get("recorded_at", 0)) >= cutoff
-        ]
+        kept = []
+        for item in self._data["scrobbles"]:
+            if not isinstance(item, dict):
+                continue
+            recorded_at = _safe_int(item.get("recorded_at"))
+            if recorded_at is None:
+                continue
+            if recorded_at >= cutoff:
+                kept.append(item)
+        self._data["scrobbles"] = kept
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,3 +88,10 @@ def _track_key(track: Track) -> str:
     return "\0".join(
         [track.artist.casefold().strip(), track.title.casefold().strip(), album]
     )
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

@@ -43,3 +43,37 @@ def test_state_prunes_old_scrobbles(tmp_path: Path):
 
     assert state.has_recent_scrobble(old_track, started_at=1_000) is False
     assert state.has_recent_scrobble(new_track, started_at=1_200) is True
+
+
+def test_state_ignores_non_dict_scrobble_entries(tmp_path: Path):
+    path = tmp_path / "state.json"
+    path.write_text('{"version": 1, "scrobbles": ["bad"]}', encoding="utf-8")
+    state = ScrobbleState(path)
+    track = Track("Duster", "The Motion Picture", None, 240_000)
+
+    assert state.has_recent_scrobble(track, started_at=1_000) is False
+
+
+def test_state_ignores_non_numeric_started_at_entries(tmp_path: Path):
+    path = tmp_path / "state.json"
+    path.write_text(
+        '{"version": 1, "scrobbles": [{"track_key": "duster\\\\u0000the motion picture\\\\u0000", "started_at": "bad"}]}',
+        encoding="utf-8",
+    )
+    state = ScrobbleState(path)
+    track = Track("Duster", "The Motion Picture", None, 240_000)
+
+    assert state.has_recent_scrobble(track, started_at=1_000) is False
+
+
+def test_prune_skips_malformed_recorded_at_entries(tmp_path: Path):
+    path = tmp_path / "state.json"
+    path.write_text(
+        '{"version": 1, "scrobbles": [{"recorded_at": "bad"}, {"recorded_at": 1200}]}',
+        encoding="utf-8",
+    )
+    state = ScrobbleState(path, retention_seconds=100)
+
+    state.prune(now=1_200)
+
+    assert state._data["scrobbles"] == [{"recorded_at": 1200}]

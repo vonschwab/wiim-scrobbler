@@ -38,6 +38,14 @@ class LastFmSpy:
         self.scrobbles.append((track, timestamp))
 
 
+class FailingState:
+    def has_recent_scrobble(self, track, started_at):
+        return False
+
+    def record_scrobble(self, track, started_at):
+        raise OSError("disk full")
+
+
 def test_scrobbles_after_half_track_played():
     track = Track(artist="Artist", title="Song", album="Album", duration_ms=240_000)
 
@@ -110,3 +118,24 @@ def test_dry_run_does_not_record_scrobble_in_state(tmp_path):
 
     assert lastfm.scrobbles == []
     assert state.has_recent_scrobble(track, scrobbler.session.started_at) is False
+
+
+def test_scrobble_session_is_marked_done_if_state_write_fails():
+    track = Track("Duster", "The Motion Picture", None, 240_000)
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM",
+        StaticWiim(track, Status()),
+        lastfm,
+        state=FailingState(),
+    )
+
+    scrobbler.poll_once()
+    try:
+        scrobbler.poll_once()
+    except OSError:
+        pass
+    scrobbler.poll_once()
+
+    assert len(lastfm.scrobbles) == 1
+    assert scrobbler.session.scrobbled is True

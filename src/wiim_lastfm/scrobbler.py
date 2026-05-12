@@ -76,9 +76,9 @@ class DeviceScrobbler:
                 self.session.scrobbled = True
                 return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
             self._scrobble(track, self.session.started_at)
+            self.session.scrobbled = True
             if self.state and not self.dry_run:
                 self.state.record_scrobble(track, self.session.started_at)
-            self.session.scrobbled = True
             return f"{self.name}: scrobbled {track.artist} - {track.title}"
 
         return None

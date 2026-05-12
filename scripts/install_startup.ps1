@@ -5,13 +5,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$pythonw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
-if (-not $pythonw) {
-    $python = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
-    if (-not $python) {
-        throw "Could not find pythonw.exe or python.exe on PATH."
-    }
-    $pythonw = $python
+$entrypoint = (Get-Command wiim-lastfm-tray.exe -ErrorAction SilentlyContinue).Source
+if (-not $entrypoint) {
+    throw "Could not find wiim-lastfm-tray.exe. Run python -m pip install -e . before installing startup."
+}
+
+$scriptsDir = Split-Path -Parent $entrypoint
+$pythonw = Join-Path $scriptsDir "pythonw.exe"
+if (-not (Test-Path $pythonw)) {
+    $pythonw = Join-Path $scriptsDir "python.exe"
+}
+if (-not (Test-Path $pythonw)) {
+    throw "Could not find pythonw.exe or python.exe next to wiim-lastfm-tray.exe."
 }
 
 $startup = [Environment]::GetFolderPath("Startup")
