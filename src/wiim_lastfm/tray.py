@@ -9,6 +9,7 @@ from logging.handlers import RotatingFileHandler
 from PIL import Image, ImageDraw
 import pystray
 
+from .config import default_user_config_path, ensure_user_config
 from .runner import BackgroundScrobblerRunner
 from .single_instance import SingleInstance
 
@@ -24,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     log_path = default_log_path()
     configure_logging(log_path)
     logging.info("Starting %s", APP_NAME)
+    ensure_user_config(args.config)
 
     instance = SingleInstance(MUTEX_NAME)
     try:
@@ -61,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wiim-lastfm-tray")
-    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--config", type=Path, default=default_user_config_path())
     parser.add_argument("--interval", type=float, default=20.0)
     parser.add_argument("--dry-run", action="store_true")
     return parser

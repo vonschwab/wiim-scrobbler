@@ -1,9 +1,9 @@
 lastfm:
-  api_key: "4063180b7849e7bf7bdf84d8c665a3f3"
-  username: "vonschwab"
+  api_key: "put-your-lastfm-api-key-here"
+  username: "put-your-lastfm-username-here"
   shared_secret: "put-your-lastfm-shared-secret-here"
-  session_key: "run-python-m-wiim_lastfm-cli-auth-to-get-this"
+  session_key: "run-auth-to-get-this"
 
 devices:
   - name: "Living Room WiiM"
-    host: "192.168.1.50"
+    host: "https://192.168.1.50"

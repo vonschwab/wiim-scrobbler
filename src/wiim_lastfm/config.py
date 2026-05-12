@@ -12,6 +12,34 @@ class ConfigError(ValueError):
     pass
 
 
+CONFIG_TEMPLATE = """lastfm:
+  api_key: "put-your-lastfm-api-key-here"
+  username: "put-your-lastfm-username-here"
+  shared_secret: "put-your-lastfm-shared-secret-here"
+  session_key: "run-auth-to-get-this"
+
+devices:
+  - name: "Living Room WiiM"
+    host: "https://192.168.1.50"
+"""
+
+
+def default_user_config_path() -> Path:
+    import os
+
+    base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    return base / "WiiM Scrobbler" / "config.yaml"
+
+
+def ensure_user_config(path: str | Path | None = None) -> bool:
+    config_path = Path(path) if path is not None else default_user_config_path()
+    if config_path.exists():
+        return False
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    return True
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}

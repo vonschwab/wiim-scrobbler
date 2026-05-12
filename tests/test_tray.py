@@ -5,7 +5,7 @@ from wiim_lastfm.tray import build_parser, create_icon_image, runner_from_config
 def test_tray_parser_defaults_to_config_and_20_second_interval():
     args = build_parser().parse_args([])
 
-    assert args.config == "config.yaml"
+    assert str(args.config).endswith("WiiM Scrobbler\\config.yaml")
     assert args.interval == 20.0
     assert args.dry_run is False
 

@@ -16,6 +16,14 @@ Edit `config.yaml`:
 - Add your Last.fm API shared secret under `lastfm.shared_secret`.
 - Leave `session_key` blank until authorization.
 
+The packaged tray app creates its user config here on first run:
+
+```text
+%APPDATA%\WiiM Scrobbler\config.yaml
+```
+
+Use the tray menu's `Open config` action to edit it.
+
 ## Authorize Last.fm
 
 ```powershell
