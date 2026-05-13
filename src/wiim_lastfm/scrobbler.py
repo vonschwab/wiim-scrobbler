@@ -72,7 +72,10 @@ class DeviceScrobbler:
 
         decision = should_scrobble(track, status.position_ms)
         if decision == ScrobbleDecision.SCROBBLE and not self.session.scrobbled:
-            if self.state and self.state.has_recent_scrobble(track, self.session.started_at):
+            if self.state and (
+                self.state.has_recent_scrobble(track, self.session.started_at)
+                or self.state.has_consecutive_scrobble(track)
+            ):
                 self.session.scrobbled = True
                 return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
             self._scrobble(track, self.session.started_at)

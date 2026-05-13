@@ -13,10 +13,12 @@ class ScrobbleState:
         self,
         path: str | Path,
         duplicate_window_seconds: int = 120,
+        consecutive_duplicate_window_seconds: int = 6 * 60 * 60,
         retention_seconds: int = 14 * 24 * 60 * 60,
     ) -> None:
         self.path = Path(path)
         self.duplicate_window_seconds = duplicate_window_seconds
+        self.consecutive_duplicate_window_seconds = consecutive_duplicate_window_seconds
         self.retention_seconds = retention_seconds
         self._data = self._load()
 
@@ -32,6 +34,23 @@ class ScrobbleState:
                 continue
             if abs(item_started_at - started_at) <= self.duplicate_window_seconds:
                 return True
+        return False
+
+    def has_consecutive_scrobble(self, track: Track, now: int | None = None) -> bool:
+        key = _track_key(track)
+        current_time = now or int(time.time())
+        for item in reversed(self._data["scrobbles"]):
+            if not isinstance(item, dict):
+                continue
+            item_key = item.get("track_key")
+            if not isinstance(item_key, str):
+                continue
+            recorded_at = _safe_int(item.get("recorded_at"))
+            if recorded_at is None:
+                continue
+            if current_time - recorded_at > self.consecutive_duplicate_window_seconds:
+                return False
+            return item_key == key
         return False
 
     def record_scrobble(

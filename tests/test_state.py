@@ -22,6 +22,37 @@ def test_state_allows_same_track_outside_duplicate_window(tmp_path: Path):
     assert state.has_recent_scrobble(track, started_at=1_200) is False
 
 
+def test_state_detects_consecutive_duplicate_scrobble(tmp_path: Path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Florist", "Shadow Bloom", "Jellywish", 240_000)
+
+    state.record_scrobble(track, started_at=1_000, now=1_120)
+
+    assert state.has_consecutive_scrobble(track, now=1_180) is True
+
+
+def test_state_allows_same_track_after_intervening_track(tmp_path: Path):
+    state = ScrobbleState(tmp_path / "state.json")
+    first = Track("Florist", "Shadow Bloom", "Jellywish", 240_000)
+    second = Track("Florist", "Still", "Jellywish", 240_000)
+
+    state.record_scrobble(first, started_at=1_000, now=1_120)
+    state.record_scrobble(second, started_at=1_240, now=1_360)
+
+    assert state.has_consecutive_scrobble(first, now=1_420) is False
+
+
+def test_state_allows_consecutive_same_track_outside_history_window(tmp_path: Path):
+    state = ScrobbleState(
+        tmp_path / "state.json", consecutive_duplicate_window_seconds=300
+    )
+    track = Track("Florist", "Shadow Bloom", "Jellywish", 240_000)
+
+    state.record_scrobble(track, started_at=1_000, now=1_120)
+
+    assert state.has_consecutive_scrobble(track, now=1_500) is False
+
+
 def test_state_persists_scrobbles_to_disk(tmp_path: Path):
     path = tmp_path / "state.json"
     track = Track("Duster", "The Motion Picture", None, 240_000)

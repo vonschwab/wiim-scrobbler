@@ -42,6 +42,9 @@ class FailingState:
     def has_recent_scrobble(self, track, started_at):
         return False
 
+    def has_consecutive_scrobble(self, track):
+        return False
+
     def record_scrobble(self, track, started_at):
         raise OSError("disk full")
 
@@ -99,6 +102,20 @@ def test_device_scrobbler_suppresses_duplicate_multiroom_scrobble(tmp_path):
 
     assert len(first_lastfm.scrobbles) == 1
     assert second_lastfm.scrobbles == []
+
+
+def test_device_scrobbler_suppresses_consecutive_duplicate_scrobble(tmp_path):
+    track = Track("Florist", "Shadow Bloom", "Jellywish", 240_000)
+    state = ScrobbleState(tmp_path / "state.json")
+    state.record_scrobble(track, started_at=1_000)
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler("WiiM", StaticWiim(track, Status()), lastfm, state=state)
+
+    scrobbler.poll_once()
+    result = scrobbler.poll_once()
+
+    assert result == "WiiM: skipped duplicate Florist - Shadow Bloom"
+    assert lastfm.scrobbles == []
 
 
 def test_dry_run_does_not_record_scrobble_in_state(tmp_path):
