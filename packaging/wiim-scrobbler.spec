@@ -5,13 +5,14 @@ from pathlib import Path
 
 
 block_cipher = None
-project_root = Path(SPECPATH).parent
+spec_dir = Path(SPECPATH)
+project_root = spec_dir.parent
 source_root = project_root / "src"
 
 hiddenimports = collect_submodules("pystray")
 
-a = Analysis(
-    [str(source_root / "wiim_lastfm" / "tray.py")],
+tray = Analysis(
+    [str(spec_dir / "tray_entry.py")],
     pathex=[str(project_root), str(source_root)],
     binaries=[],
     datas=[],
@@ -26,14 +27,14 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+tray_pyz = PYZ(tray.pure, tray.zipped_data, cipher=block_cipher)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+tray_exe = EXE(
+    tray_pyz,
+    tray.scripts,
+    tray.binaries,
+    tray.zipfiles,
+    tray.datas,
     [],
     name='WiiM Scrobbler',
     debug=False,
@@ -43,6 +44,46 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+cli = Analysis(
+    [str(spec_dir / "cli_entry.py")],
+    pathex=[str(project_root), str(source_root)],
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+cli_pyz = PYZ(cli.pure, cli.zipped_data, cipher=block_cipher)
+
+cli_exe = EXE(
+    cli_pyz,
+    cli.scripts,
+    cli.binaries,
+    cli.zipfiles,
+    cli.datas,
+    [],
+    name='WiiM Scrobbler CLI',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

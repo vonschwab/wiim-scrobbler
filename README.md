@@ -5,6 +5,31 @@ local WiiM API to detect playback and submit tracks to Last.fm.
 
 ## Setup
 
+### Windows installer
+
+Download and run the latest `wiim-scrobbler-setup-*.exe` from the GitHub
+release. The installer adds `WiiM Scrobbler` to the Start Menu and can
+optionally create a startup shortcut so the tray app starts when you sign in.
+
+On first launch, the tray app creates a user config here:
+
+```text
+%APPDATA%\WiiM Scrobbler\config.yaml
+```
+
+Use the tray menu's `Open config` action to edit it. Add your Last.fm API
+details and WiiM device addresses, then run Last.fm authorization once from the
+Start Menu shortcut:
+
+```text
+WiiM Scrobbler > Authorize Last.fm
+```
+
+Open the printed URL, approve access, then press Enter in the terminal. Add the
+printed `session_key` to your config and restart the tray app.
+
+### Development setup
+
 ```powershell
 python -m pip install -e ".[dev]"
 Copy-Item config.example.yaml config.yaml
@@ -73,6 +98,12 @@ python -m wiim_lastfm.cli --config config.yaml run --dry-run
 
 The scrobbler submits after at least half the track has played, or after four minutes
 for longer tracks.
+
+Duplicate protection is stored locally, so restarting the app does not resubmit
+recent tracks. The scrobbler suppresses multi-room duplicates with matching
+start times and also skips the same track if it is the most recent scrobble
+within the short history window. If a different track plays in between, the
+same song can scrobble again normally.
 
 ## Tray App
 
