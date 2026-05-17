@@ -11,15 +11,21 @@ Download and run the latest `wiim-scrobbler-setup-*.exe` from the GitHub
 release. The installer adds `WiiM Scrobbler` to the Start Menu and can
 optionally create a startup shortcut so the tray app starts when you sign in.
 
-On first launch, the tray app creates a user config here:
+The installer can write your user config during setup. It asks for:
+
+- Last.fm API key, username, and shared secret.
+- Optional Last.fm session key.
+- One WiiM device name and IP address, with a `+ Add another WiiM` button for
+  additional devices.
+
+Get the Last.fm API key and shared secret from your Last.fm API account page:
 
 ```text
-%APPDATA%\WiiM Scrobbler\config.yaml
+https://www.last.fm/api/account
 ```
 
-Use the tray menu's `Open config` action to edit it. Add your Last.fm API
-details and WiiM device addresses, then run Last.fm authorization once from the
-Start Menu shortcut:
+The session key is created by authorizing the app. If you do not already have
+one, leave it blank during setup and run this Start Menu shortcut after install:
 
 ```text
 WiiM Scrobbler > Authorize Last.fm
@@ -27,6 +33,16 @@ WiiM Scrobbler > Authorize Last.fm
 
 Open the printed URL, approve access, then press Enter in the terminal. Add the
 printed `session_key` to your config and restart the tray app.
+
+The installer writes config here:
+
+```text
+%APPDATA%\WiiM Scrobbler\config.yaml
+```
+
+It will not overwrite an existing config unless you choose `Replace existing
+config`. You can also use the tray menu's `Open config` action to edit the file
+later.
 
 ### Development setup
 

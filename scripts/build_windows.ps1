@@ -11,6 +11,9 @@ python -m pip install -e ".[dev,build]"
 
 Write-Host "Building executable with PyInstaller..."
 python -m PyInstaller --clean --noconfirm $specPath
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE."
+}
 
 $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
@@ -32,5 +35,8 @@ if (-not $iscc) {
 
 Write-Host "Building installer with Inno Setup..."
 & $iscc $installerScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "Build complete."
