@@ -106,6 +106,35 @@ def test_command_falls_back_to_http_when_https_connection_fails(monkeypatch):
     assert client.base_url == "http://192.168.1.179"
 
 
+def test_player_status_uses_upnp_when_http_api_is_unavailable(monkeypatch):
+    class UpnpFallback:
+        def player_status(self):
+            return parse_player_status(
+                {"status": "play", "curpos": "72000", "totlen": "222000", "mode": "upnp"}
+            )
+
+        def current_track(self, duration_ms=None):
+            return parse_track(
+                {"title": "Shadow Bloom", "artist": "Florist", "album": "Jellywish"},
+                duration_ms=duration_ms,
+            )
+
+    def failing_get(url, params, timeout, verify):
+        raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr("wiim_lastfm.wiim.requests.get", failing_get)
+    monkeypatch.setattr("wiim_lastfm.wiim.AVTransportClient", lambda host, timeout: UpnpFallback())
+    client = WiimClient("https://192.168.1.179")
+
+    status = client.player_status()
+    track = client.current_track(duration_ms=status.duration_ms)
+
+    assert status.is_playing is True
+    assert status.position_ms == 72_000
+    assert track.artist == "Florist"
+    assert track.title == "Shadow Bloom"
+
+
 def test_client_disables_tls_verification_for_self_signed_wiim_certificates():
     client = WiimClient("https://192.168.1.97")
 

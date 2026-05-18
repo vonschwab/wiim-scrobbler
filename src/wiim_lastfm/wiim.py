@@ -8,6 +8,7 @@ from requests import RequestException
 import urllib3
 
 from .models import PlayerStatus, Track
+from .upnp import AVTransportClient
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -21,6 +22,7 @@ class WiimClient:
         self.base_url = self.base_urls[0]
         self.timeout = timeout
         self.verify_tls = verify_tls
+        self._upnp: AVTransportClient | None = None
 
     def command(self, command: str) -> Any:
         last_error: RequestException | None = None
@@ -46,11 +48,22 @@ class WiimClient:
         return load_json_response(response)
 
     def player_status(self) -> PlayerStatus:
-        return parse_player_status(self.command("getPlayerStatus"))
+        try:
+            return parse_player_status(self.command("getPlayerStatus"))
+        except RequestException:
+            return self._upnp_client().player_status()
 
     def current_track(self, duration_ms: int | None = None) -> Track:
-        metadata = self.command("getMetaInfo")
-        return safe_parse_track(metadata, duration_ms=duration_ms)
+        try:
+            metadata = self.command("getMetaInfo")
+            return safe_parse_track(metadata, duration_ms=duration_ms)
+        except RequestException:
+            return self._upnp_client().current_track(duration_ms=duration_ms)
+
+    def _upnp_client(self) -> AVTransportClient:
+        if self._upnp is None:
+            self._upnp = AVTransportClient(self.host, timeout=self.timeout)
+        return self._upnp
 
 
 def parse_player_status(response: dict[str, Any]) -> PlayerStatus:

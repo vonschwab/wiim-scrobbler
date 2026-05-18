@@ -85,6 +85,10 @@ This calls:
 - `getPlayerStatus` for play state, position, duration, and source mode
 - `getMetaInfo` for artist, title, and album
 
+If a WiiM is reachable but does not expose the local HTTP API, the client falls
+back to UPnP AVTransport on port 49152 for playback state, position, duration,
+and track metadata.
+
 ## Probe WiiM History
 
 ```powershell
