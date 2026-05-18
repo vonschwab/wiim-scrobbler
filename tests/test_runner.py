@@ -23,6 +23,32 @@ class FailingPoller:
         raise RuntimeError("network down")
 
 
+class RecoveringPoller:
+    name = "recovering device"
+
+    def __init__(self):
+        self.calls = 0
+
+    def poll_once(self):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("network down")
+        return "recovering device: now playing Artist - Track"
+
+
+class FailingThenIdleThenFailingPoller:
+    name = "flaky device"
+
+    def __init__(self):
+        self.calls = 0
+
+    def poll_once(self):
+        self.calls += 1
+        if self.calls in (1, 3):
+            raise RuntimeError("network down")
+        return None
+
+
 def test_runner_poll_cycle_records_latest_message():
     runner = BackgroundScrobblerRunner([Poller(["scrobbled Track"])], interval=20)
 
@@ -59,6 +85,87 @@ def test_runner_poll_cycle_logs_errors(caplog):
         runner.poll_cycle()
 
     assert "bad device: network down" in caplog.text
+
+
+def test_runner_poll_cycle_does_not_log_errors_as_info(caplog):
+    runner = BackgroundScrobblerRunner([FailingPoller()], interval=20)
+
+    with caplog.at_level(logging.INFO):
+        runner.poll_cycle()
+
+    assert [(record.levelname, record.message) for record in caplog.records] == [
+        ("WARNING", "bad device: network down")
+    ]
+
+
+def test_runner_suppresses_repeated_error_logs_within_interval(caplog):
+    now = iter([100.0, 120.0])
+    runner = BackgroundScrobblerRunner(
+        [FailingPoller()],
+        interval=20,
+        error_log_interval=300,
+        clock=lambda: next(now),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        runner.poll_cycle()
+        runner.poll_cycle()
+
+    assert [record.message for record in caplog.records] == ["bad device: network down"]
+
+
+def test_runner_logs_repeated_error_after_interval(caplog):
+    now = iter([100.0, 420.0])
+    runner = BackgroundScrobblerRunner(
+        [FailingPoller()],
+        interval=20,
+        error_log_interval=300,
+        clock=lambda: next(now),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        runner.poll_cycle()
+        runner.poll_cycle()
+
+    assert [record.message for record in caplog.records] == [
+        "bad device: network down",
+        "bad device: network down",
+    ]
+
+
+def test_runner_logs_normal_message_after_error(caplog):
+    runner = BackgroundScrobblerRunner([RecoveringPoller()], interval=20)
+
+    with caplog.at_level(logging.INFO):
+        runner.poll_cycle()
+        runner.poll_cycle()
+
+    assert ("WARNING", "recovering device: network down") in [
+        (record.levelname, record.message) for record in caplog.records
+    ]
+    assert ("INFO", "recovering device: now playing Artist - Track") in [
+        (record.levelname, record.message) for record in caplog.records
+    ]
+
+
+def test_runner_logs_new_error_after_successful_poll(caplog):
+    now = iter([100.0, 120.0])
+    runner = BackgroundScrobblerRunner(
+        [FailingThenIdleThenFailingPoller()],
+        interval=20,
+        error_log_interval=300,
+        clock=lambda: next(now),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        runner.poll_cycle()
+        runner.poll_cycle()
+        runner.poll_cycle()
+
+    assert [record.message for record in caplog.records] == [
+        "flaky device: network down",
+        "flaky device: network down",
+    ]
 
 
 def test_runner_start_and_stop_manage_background_thread():

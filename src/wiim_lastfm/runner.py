@@ -29,12 +29,21 @@ class RunnerStatus(enum.Enum):
 
 
 class BackgroundScrobblerRunner:
-    def __init__(self, pollers: Iterable[Poller], interval: float = 20.0) -> None:
+    def __init__(
+        self,
+        pollers: Iterable[Poller],
+        interval: float = 20.0,
+        error_log_interval: float = 300.0,
+        clock=time.monotonic,
+    ) -> None:
         self.pollers = list(pollers)
         self.interval = interval
+        self.error_log_interval = error_log_interval
         self.status = RunnerStatus.STOPPED
         self.latest_message = "Stopped"
         self.error_count = 0
+        self._clock = clock
+        self._last_error_log: dict[str, tuple[str, float]] = {}
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -95,19 +104,38 @@ class BackgroundScrobblerRunner:
     def poll_cycle(self) -> None:
         self.status = RunnerStatus.RUNNING
         for poller in self.pollers:
+            is_error = False
+            name = getattr(poller, "name", "device")
             try:
                 message = poller.poll_once()
             except Exception as exc:
-                name = getattr(poller, "name", "device")
                 message = f"{name}: {exc}"
-                logging.warning(message)
+                is_error = True
                 with self._lock:
                     self.error_count += 1
+                    self.latest_message = message
+                if self._should_log_error(name, message):
+                    logging.warning(message)
+            if is_error:
+                continue
+            self._last_error_log.pop(name, None)
             if message:
                 with self._lock:
                     self.latest_message = message
                 logging.info(message)
                 print(message, flush=True)
+
+    def _should_log_error(self, name: str, message: str) -> bool:
+        now = self._clock()
+        previous = self._last_error_log.get(name)
+        if previous is None:
+            self._last_error_log[name] = (message, now)
+            return True
+        previous_message, previous_time = previous
+        if message != previous_message or now - previous_time >= self.error_log_interval:
+            self._last_error_log[name] = (message, now)
+            return True
+        return False
 
 
 def _lastfm_from_config(config: dict[str, object], require_session: bool) -> LastFmClient:

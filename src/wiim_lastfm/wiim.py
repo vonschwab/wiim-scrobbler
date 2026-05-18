@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import requests
+from requests import RequestException
 import urllib3
 
 from .models import PlayerStatus, Track
@@ -16,18 +17,31 @@ class WiimClient:
         self, host: str, timeout: float = 5.0, verify_tls: bool = False
     ) -> None:
         self.host = host
-        self.base_url = _base_url(host)
+        self.base_urls = _base_urls(host)
+        self.base_url = self.base_urls[0]
         self.timeout = timeout
         self.verify_tls = verify_tls
 
     def command(self, command: str) -> Any:
-        url = f"{self.base_url}/httpapi.asp"
-        response = requests.get(
-            url,
-            params={"command": command},
-            timeout=self.timeout,
-            verify=self.verify_tls,
-        )
+        last_error: RequestException | None = None
+        for base_url in self.base_urls:
+            url = f"{base_url}/httpapi.asp"
+            try:
+                response = requests.get(
+                    url,
+                    params={"command": command},
+                    timeout=self.timeout,
+                    verify=self.verify_tls,
+                )
+            except RequestException as exc:
+                last_error = exc
+                continue
+            self.base_url = base_url
+            break
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No WiiM base URLs configured")
         response.raise_for_status()
         return load_json_response(response)
 
@@ -104,10 +118,17 @@ def _looks_like_hex(value: str) -> bool:
 
 
 def _base_url(host: str) -> str:
+    return _base_urls(host)[0]
+
+
+def _base_urls(host: str) -> list[str]:
     normalized = host.strip().rstrip("/")
-    if normalized.startswith(("http://", "https://")):
-        return normalized
-    return f"https://{normalized}"
+    if normalized.startswith("http://"):
+        return [normalized]
+    if normalized.startswith("https://"):
+        fallback = "http://" + normalized[len("https://") :]
+        return [normalized, fallback]
+    return [f"https://{normalized}", f"http://{normalized}"]
 
 
 def load_json_response(response: Any) -> Any:

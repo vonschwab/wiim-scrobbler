@@ -1,3 +1,5 @@
+import requests
+
 from wiim_lastfm.wiim import (
     WiimClient,
     load_json_response,
@@ -54,12 +56,54 @@ def test_client_uses_https_base_url_when_scheme_is_provided():
     client = WiimClient("https://192.168.1.97")
 
     assert client.base_url == "https://192.168.1.97"
+    assert client.base_urls == ["https://192.168.1.97", "http://192.168.1.97"]
 
 
-def test_client_defaults_plain_host_to_https_for_current_wiim_firmware():
+def test_client_tries_https_then_http_for_plain_host():
     client = WiimClient("192.168.1.97")
 
     assert client.base_url == "https://192.168.1.97"
+    assert client.base_urls == ["https://192.168.1.97", "http://192.168.1.97"]
+
+
+def test_client_uses_only_explicit_http_base_url():
+    client = WiimClient("http://192.168.1.97")
+
+    assert client.base_url == "http://192.168.1.97"
+    assert client.base_urls == ["http://192.168.1.97"]
+
+
+def test_command_falls_back_to_http_when_https_connection_fails(monkeypatch):
+    calls = []
+
+    class Response:
+        content = b'{"status":"stop","curpos":"0","totlen":"0"}'
+
+        def json(self):
+            return {"status": "stop", "curpos": "0", "totlen": "0"}
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, params, timeout, verify):
+        calls.append(url)
+        if url.startswith("https://"):
+            raise requests.ConnectionError("connection refused")
+        return Response()
+
+    monkeypatch.setattr("wiim_lastfm.wiim.requests.get", fake_get)
+    client = WiimClient("https://192.168.1.179")
+
+    assert client.command("getPlayerStatus") == {
+        "status": "stop",
+        "curpos": "0",
+        "totlen": "0",
+    }
+    assert calls == [
+        "https://192.168.1.179/httpapi.asp",
+        "http://192.168.1.179/httpapi.asp",
+    ]
+    assert client.base_url == "http://192.168.1.179"
 
 
 def test_client_disables_tls_verification_for_self_signed_wiim_certificates():
