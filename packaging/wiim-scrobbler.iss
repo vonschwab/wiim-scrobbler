@@ -1,5 +1,5 @@
 #define MyAppName "WiiM Scrobbler"
-#define MyAppVersion "0.1.2"
+#define MyAppVersion "0.1.3"
 #define MyAppPublisher "vonschwab"
 #define MyAppURL "https://github.com/vonschwab/wiim-scrobbler"
 #define MyAppExeName "WiiM Scrobbler.exe"
@@ -66,10 +66,24 @@ var
   WiimHostEdits: array[0..2] of TNewEdit;
   AddDeviceButton: TNewButton;
   VisibleWiimDevices: Integer;
+  ExistingConfigDetected: Boolean;
+  ReconfigureRequested: Boolean;
 
 function UserConfigPath(): String;
 begin
   Result := ExpandConstant('{userappdata}\WiiM Scrobbler\config.yaml');
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result :=
+    ExistingConfigDetected and
+    (not ReconfigureRequested) and
+    (
+      (PageID = ConfigPage.ID) or
+      (PageID = LastFmPage.ID) or
+      (PageID = WiimPage.ID)
+    );
 end;
 
 function ConfigWriteAllowed(): Boolean;
@@ -217,6 +231,9 @@ var
   ExistingLabel: TNewStaticText;
   Index: Integer;
 begin
+  ExistingConfigDetected := FileExists(UserConfigPath());
+  ReconfigureRequested := ExpandConstant('{param:RECONFIGURE|0}') = '1';
+
   ConfigPage := CreateCustomPage(
     wpSelectTasks,
     'WiiM Scrobbler Configuration',

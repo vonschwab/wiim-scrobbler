@@ -43,6 +43,18 @@ def test_inno_setup_script_collects_config_values_in_wizard():
     assert "%APPDATA%\\WiiM Scrobbler\\config.yaml" in script
 
 
+def test_inno_setup_script_skips_config_wizard_during_update():
+    script = Path("packaging/wiim-scrobbler.iss").read_text(encoding="utf-8")
+
+    assert "ExistingConfigDetected" in script
+    assert "ReconfigureRequested" in script
+    assert "function ShouldSkipPage(PageID: Integer): Boolean;" in script
+    assert "(PageID = ConfigPage.ID)" in script
+    assert "(PageID = LastFmPage.ID)" in script
+    assert "(PageID = WiimPage.ID)" in script
+    assert "{param:RECONFIGURE|0}" in script
+
+
 def test_windows_build_script_runs_pyinstaller_then_inno():
     script = Path("scripts/build_windows.ps1").read_text(encoding="utf-8")
 

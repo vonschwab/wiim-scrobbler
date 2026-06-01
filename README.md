@@ -44,6 +44,11 @@ It will not overwrite an existing config unless you choose `Replace existing
 config`. You can also use the tray menu's `Open config` action to edit the file
 later.
 
+When upgrading an existing installation, the installer detects that config file
+and skips the credential and device pages automatically. To intentionally reopen
+the setup wizard and replace the config, run the installer with
+`/RECONFIGURE=1`.
+
 ### Development setup
 
 ```powershell
