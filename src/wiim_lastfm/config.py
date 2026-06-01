@@ -21,6 +21,9 @@ CONFIG_TEMPLATE = """lastfm:
 devices:
   - name: "Living Room WiiM"
     host: "https://192.168.1.50"
+
+scrobble:
+  settlement_seconds: 90
 """
 
 
@@ -61,3 +64,16 @@ def get_devices(config: dict[str, Any]) -> list[DeviceConfig]:
             DeviceConfig(name=str(item.get("name") or item["host"]), host=str(item["host"]))
         )
     return parsed
+
+
+def get_settlement_seconds(config: dict[str, Any]) -> int:
+    settings = config.get("scrobble", {})
+    if not isinstance(settings, dict):
+        raise ConfigError("scrobble settings must be a mapping")
+    try:
+        settlement_seconds = int(settings.get("settlement_seconds", 90))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("scrobble.settlement_seconds must be an integer") from exc
+    if settlement_seconds < 0:
+        raise ConfigError("scrobble.settlement_seconds must be zero or greater")
+    return settlement_seconds

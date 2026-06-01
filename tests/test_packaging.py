@@ -39,6 +39,7 @@ def test_inno_setup_script_collects_config_values_in_wizard():
     assert "Device name" in script
     assert "WiiM" in script
     assert "SaveConfigFile" in script
+    assert "settlement_seconds: 90" in script
     assert "%APPDATA%\\WiiM Scrobbler\\config.yaml" in script
 
 

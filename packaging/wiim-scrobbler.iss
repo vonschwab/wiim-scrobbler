@@ -1,5 +1,5 @@
 #define MyAppName "WiiM Scrobbler"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "vonschwab"
 #define MyAppURL "https://github.com/vonschwab/wiim-scrobbler"
 #define MyAppExeName "WiiM Scrobbler.exe"
@@ -343,6 +343,11 @@ begin
         '    host: ' + YamlQuote(Host) + LineBreak();
     end;
   end;
+
+  ConfigText := ConfigText +
+    LineBreak() +
+    'scrobble:' + LineBreak() +
+    '  settlement_seconds: 90' + LineBreak();
 
   if not SaveStringToFile(ConfigPath, ConfigText, False) then
   begin

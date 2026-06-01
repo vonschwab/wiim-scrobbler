@@ -116,14 +116,16 @@ Use `--dry-run` to see detections without sending anything to Last.fm:
 python -m wiim_lastfm.cli --config config.yaml run --dry-run
 ```
 
-The scrobbler submits after at least half the track has played, or after four minutes
-for longer tracks.
+The scrobbler waits until a track has been observed in at least two polling
+cycles. When the next track starts, or playback stops, the completed play enters
+a local pending queue. After a 90-second settlement window, the app checks your
+Last.fm recent history and submits only if another connected service has not
+already scrobbled the track. Set `scrobble.settlement_seconds` in the config to
+tune that delay.
 
-Duplicate protection is stored locally, so restarting the app does not resubmit
-recent tracks. The scrobbler suppresses multi-room duplicates with matching
-start times and also skips the same track if it is the most recent scrobble
-within the short history window. If a different track plays in between, the
-same song can scrobble again normally.
+The pending queue and duplicate protection history are stored locally, so
+restarting the app does not lose completed plays or resubmit recent tracks.
+Matching multi-room observations collapse into one queued play.
 
 ## Tray App
 

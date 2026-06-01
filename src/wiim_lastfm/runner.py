@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
-from .config import get_devices, load_config
+from .config import get_devices, get_settlement_seconds, load_config
 from .lastfm import LastFmClient
 from .scrobbler import DeviceScrobbler
 from .state import ScrobbleState
@@ -59,6 +59,7 @@ class BackgroundScrobblerRunner:
         config = load_config(config_path)
         lastfm = _lastfm_from_config(config, require_session=not dry_run)
         state = ScrobbleState(state_path or default_state_path())
+        settlement_seconds = get_settlement_seconds(config)
         return cls(
             [
                 DeviceScrobbler(
@@ -67,6 +68,7 @@ class BackgroundScrobblerRunner:
                     lastfm,
                     dry_run=dry_run,
                     state=state,
+                    settlement_seconds=settlement_seconds,
                 )
                 for device in get_devices(config)
             ],

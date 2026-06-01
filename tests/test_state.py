@@ -108,3 +108,38 @@ def test_prune_skips_malformed_recorded_at_entries(tmp_path: Path):
     state.prune(now=1_200)
 
     assert state._data["scrobbles"] == [{"recorded_at": 1200}]
+
+
+def test_state_queues_and_persists_pending_scrobble(tmp_path: Path):
+    path = tmp_path / "state.json"
+    track = Track("Duster", "The Motion Picture", "Stratosphere", 240_000)
+
+    queued = ScrobbleState(path).queue_pending(track, started_at=1_000, queued_at=1_200)
+
+    assert queued is True
+    pending = ScrobbleState(path).due_pending(now=1_290, settlement_seconds=90)
+    assert len(pending) == 1
+    assert pending[0].track == track
+    assert pending[0].started_at == 1_000
+
+
+def test_state_collapses_duplicate_multiroom_pending_scrobble(tmp_path: Path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Duster", "The Motion Picture", "Stratosphere", 240_000)
+
+    assert state.queue_pending(track, started_at=1_000, queued_at=1_200) is True
+    assert state.queue_pending(track, started_at=1_020, queued_at=1_220) is False
+
+    assert len(state.due_pending(now=1_500, settlement_seconds=90)) == 1
+
+
+def test_state_discards_completed_pending_scrobble(tmp_path: Path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Duster", "The Motion Picture", "Stratosphere", 240_000)
+    state.queue_pending(track, started_at=1_000, queued_at=1_200)
+    pending = state.due_pending(now=1_300, settlement_seconds=90)[0]
+
+    state.complete_pending(pending, now=1_300)
+
+    assert state.due_pending(now=1_500, settlement_seconds=90) == []
+    assert state.has_recent_scrobble(track, started_at=1_000) is True

@@ -1,9 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from wiim_lastfm.config import (
     CONFIG_TEMPLATE,
+    ConfigError,
     default_user_config_path,
     ensure_user_config,
+    get_settlement_seconds,
 )
 
 
@@ -37,3 +41,16 @@ def test_ensure_user_config_does_not_overwrite_existing_file(tmp_path):
 def test_public_config_template_does_not_include_personal_credentials():
     assert "4063180b7849e7bf7bdf84d8c665a3f3" not in CONFIG_TEMPLATE
     assert "vonschwab" not in CONFIG_TEMPLATE
+
+
+def test_settlement_seconds_defaults_to_90():
+    assert get_settlement_seconds({}) == 90
+
+
+def test_settlement_seconds_can_be_configured():
+    assert get_settlement_seconds({"scrobble": {"settlement_seconds": 120}}) == 120
+
+
+def test_settlement_seconds_rejects_negative_value():
+    with pytest.raises(ConfigError, match="zero or greater"):
+        get_settlement_seconds({"scrobble": {"settlement_seconds": -1}})
