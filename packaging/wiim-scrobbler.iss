@@ -1,5 +1,5 @@
 #define MyAppName "WiiM Scrobbler"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #define MyAppPublisher "vonschwab"
 #define MyAppURL "https://github.com/vonschwab/wiim-scrobbler"
 #define MyAppExeName "WiiM Scrobbler.exe"
@@ -42,7 +42,11 @@ Source: "..\config.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Authorize Last.fm"; Filename: "{app}\{#MyAppCliExeName}"; Parameters: "--config ""{userappdata}\WiiM Scrobbler\config.yaml"" auth"; WorkingDir: "{app}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{userstartup}\WiiM Scrobbler.lnk"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: startup
+Name: "{userstartup}\WiiM Scrobbler"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: startup
+
+[InstallDelete]
+Type: files; Name: "{userstartup}\WiiM Scrobbler.lnk.lnk"
+Type: files; Name: "{userstartup}\WiiM Last.fm Scrobbler.lnk"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

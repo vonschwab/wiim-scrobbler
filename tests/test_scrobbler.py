@@ -30,9 +30,13 @@ class LastFmSpy:
     def __init__(self):
         self.now_playing = []
         self.scrobbles = []
+        self.external_recent = False
 
     def update_now_playing(self, track):
         self.now_playing.append(track)
+
+    def has_recent_scrobble(self, track, started_at):
+        return self.external_recent
 
     def scrobble(self, track, timestamp=None):
         self.scrobbles.append((track, timestamp))
@@ -115,6 +119,20 @@ def test_device_scrobbler_suppresses_consecutive_duplicate_scrobble(tmp_path):
     result = scrobbler.poll_once()
 
     assert result == "WiiM: skipped duplicate Florist - Shadow Bloom"
+    assert lastfm.scrobbles == []
+
+
+def test_device_scrobbler_suppresses_external_lastfm_duplicate(tmp_path):
+    track = Track("Duster", "The Motion Picture", None, 240_000)
+    state = ScrobbleState(tmp_path / "state.json")
+    lastfm = LastFmSpy()
+    lastfm.external_recent = True
+    scrobbler = DeviceScrobbler("WiiM", StaticWiim(track, Status()), lastfm, state=state)
+
+    scrobbler.poll_once()
+    result = scrobbler.poll_once()
+
+    assert result == "WiiM: skipped Last.fm duplicate Duster - The Motion Picture"
     assert lastfm.scrobbles == []
 
 

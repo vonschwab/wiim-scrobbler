@@ -20,7 +20,9 @@ def test_inno_setup_script_installs_executables_and_startup_task():
     assert "WiiM Scrobbler.exe" in script
     assert "WiiM Scrobbler CLI.exe" in script
     assert "Authorize Last.fm" in script
-    assert "{userstartup}\\WiiM Scrobbler.lnk" in script
+    assert '{userstartup}\\WiiM Scrobbler"' in script
+    assert '{userstartup}\\WiiM Scrobbler.lnk.lnk"' in script
+    assert '{userstartup}\\WiiM Last.fm Scrobbler.lnk"' in script
 
 
 def test_inno_setup_script_collects_config_values_in_wizard():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import logging
 import time
 from dataclasses import dataclass
 
@@ -78,6 +79,18 @@ class DeviceScrobbler:
             ):
                 self.session.scrobbled = True
                 return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
+            if not self.dry_run:
+                try:
+                    if self.lastfm.has_recent_scrobble(track, self.session.started_at):
+                        self.session.scrobbled = True
+                        return (
+                            f"{self.name}: skipped Last.fm duplicate "
+                            f"{track.artist} - {track.title}"
+                        )
+                except Exception as exc:
+                    logging.warning(
+                        "%s: could not check Last.fm history: %s", self.name, exc
+                    )
             self._scrobble(track, self.session.started_at)
             self.session.scrobbled = True
             if self.state and not self.dry_run:

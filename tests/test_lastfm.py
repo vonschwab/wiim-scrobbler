@@ -1,4 +1,5 @@
 from wiim_lastfm.lastfm import LastFmClient
+from wiim_lastfm.models import Track
 
 
 def test_lastfm_signature_sorts_params_and_appends_secret():
@@ -21,4 +22,75 @@ def test_auth_url_contains_api_key_and_token():
 
     assert client.auth_url("token") == (
         "https://www.last.fm/api/auth/?api_key=key&token=token"
+    )
+
+
+def test_has_recent_scrobble_detects_matching_external_track(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "recenttracks": {
+                    "track": [
+                        {
+                            "artist": {"#text": "Duster"},
+                            "name": "The Motion Picture",
+                            "date": {"uts": "1030"},
+                        }
+                    ]
+                }
+            }
+
+    monkeypatch.setattr(
+        "wiim_lastfm.lastfm.requests.get", lambda *args, **kwargs: Response()
+    )
+    client = LastFmClient(
+        api_key="key",
+        shared_secret="secret",
+        username="vonschwab",
+    )
+
+    assert (
+        client.has_recent_scrobble(
+            Track(" duster ", "THE MOTION PICTURE", "Different Album", 240_000),
+            started_at=1_000,
+        )
+        is True
+    )
+
+
+def test_has_recent_scrobble_ignores_track_outside_window(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "recenttracks": {
+                    "track": {
+                        "artist": {"#text": "Duster"},
+                        "name": "The Motion Picture",
+                        "date": {"uts": "2000"},
+                    }
+                }
+            }
+
+    monkeypatch.setattr(
+        "wiim_lastfm.lastfm.requests.get", lambda *args, **kwargs: Response()
+    )
+    client = LastFmClient(
+        api_key="key",
+        shared_secret="secret",
+        username="vonschwab",
+    )
+
+    assert (
+        client.has_recent_scrobble(
+            Track("Duster", "The Motion Picture", None, 240_000),
+            started_at=1_000,
+            window_seconds=300,
+        )
+        is False
     )

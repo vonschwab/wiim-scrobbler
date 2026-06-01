@@ -146,6 +146,7 @@ def _lastfm_from_config(config: dict[str, object], require_session: bool) -> Las
     api_key = str(lastfm_config.get("api_key") or "")
     shared_secret = str(lastfm_config.get("shared_secret") or "")
     session_key = lastfm_config.get("session_key")
+    username = str(lastfm_config.get("username") or "")
 
     if not api_key:
         raise ValueError("lastfm.api_key is required")
@@ -158,6 +159,7 @@ def _lastfm_from_config(config: dict[str, object], require_session: bool) -> Las
         api_key=api_key,
         shared_secret=shared_secret,
         session_key=str(session_key) if session_key else None,
+        username=username or None,
     )
 
 
