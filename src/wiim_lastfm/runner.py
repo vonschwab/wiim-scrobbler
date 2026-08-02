@@ -11,6 +11,7 @@ from typing import Protocol
 
 from .config import get_devices, get_settlement_seconds, load_config
 from .lastfm import LastFmClient
+from .nts import NtsResolver
 from .scrobbler import DeviceScrobbler
 from .state import ScrobbleState
 from .wiim import WiimClient
@@ -60,6 +61,9 @@ class BackgroundScrobblerRunner:
         lastfm = _lastfm_from_config(config, require_session=not dry_run)
         state = ScrobbleState(state_path or default_state_path())
         settlement_seconds = get_settlement_seconds(config)
+        # One resolver for every device so the NTS catalog and stream reads are
+        # fetched once, not once per WiiM.
+        nts = NtsResolver()
         return cls(
             [
                 DeviceScrobbler(
@@ -69,6 +73,7 @@ class BackgroundScrobblerRunner:
                     dry_run=dry_run,
                     state=state,
                     settlement_seconds=settlement_seconds,
+                    nts=nts,
                 )
                 for device in get_devices(config)
             ],

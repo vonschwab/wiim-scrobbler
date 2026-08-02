@@ -75,6 +75,16 @@ class FailingState:
         raise OSError("disk full")
 
 
+class StubResolver:
+    def __init__(self, resolved=None):
+        self.resolved = resolved
+        self.seen = []
+
+    def resolve(self, track):
+        self.seen.append(track)
+        return self.resolved
+
+
 def test_scrobbles_after_half_track_played():
     track = Track(artist="Artist", title="Song", album="Album", duration_ms=240_000)
 
@@ -304,3 +314,60 @@ def test_scrobble_session_is_marked_done_if_state_write_fails():
     scrobbler.poll_once()
 
     assert len(lastfm.scrobbles) == 1
+
+
+def test_poll_once_reports_the_resolved_nts_track():
+    mixtape = Track(artist="", title="POOLSIDE", album=None, duration_ms=None)
+    resolver = StubResolver(Track("Benedek", "Alpha Tape", None, None))
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM",
+        StaticWiim(mixtape, Status()),
+        lastfm,
+        nts=resolver,
+    )
+
+    message = scrobbler.poll_once()
+
+    assert message == "WiiM: now playing Benedek - Alpha Tape"
+    assert lastfm.now_playing == [Track("Benedek", "Alpha Tape", None, None)]
+
+
+def test_poll_once_skips_nts_playback_with_no_identified_track():
+    mixtape = Track(
+        artist="JACK SAPSED, ISLAND TIME VOL 17",
+        title="ISLAND TIME",
+        album=None,
+        duration_ms=None,
+    )
+    resolver = StubResolver(Track("", "ISLAND TIME", None, None))
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM",
+        StaticWiim(mixtape, Status()),
+        lastfm,
+        nts=resolver,
+    )
+
+    message = scrobbler.poll_once()
+
+    assert lastfm.now_playing == []
+    assert "did not expose artist/title" in message
+
+
+def test_poll_once_keeps_device_metadata_when_resolver_declines():
+    track = Track("Orchid Mantis", "blank slate", "album", None)
+    resolver = StubResolver(None)
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM",
+        StaticWiim(track, Status()),
+        lastfm,
+        nts=resolver,
+    )
+
+    scrobbler.poll_once()
+
+    assert lastfm.now_playing == [
+        Track("Orchid Mantis", "blank slate", "album", 240_000)
+    ]

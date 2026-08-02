@@ -7,6 +7,9 @@ class Track:
     title: str
     album: str | None
     duration_ms: int | None
+    # Identifies the streaming service behind the playback; not scrobbled and
+    # deliberately excluded from `key` so it never affects deduplication.
+    art_uri: str | None = None
 
     @property
     def key(self) -> tuple[str, str, str | None]:

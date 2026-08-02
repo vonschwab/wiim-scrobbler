@@ -12,6 +12,10 @@ from .upnp import AVTransportClient
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# WiiM firmware writes these into metadata fields it has no value for. The
+# misspelling is the device's, not a typo.
+UNKNOWN_METADATA = {"unknow", "unknown"}
+
 
 class WiimClient:
     def __init__(
@@ -85,6 +89,7 @@ def parse_track(response: dict[str, Any], duration_ms: int | None) -> Track:
         title=_metadata_text(metadata, "title"),
         album=_optional_str(_metadata_text(metadata, "album")),
         duration_ms=duration_ms,
+        art_uri=_optional_str(_metadata_text(metadata, "albumArtURI")),
     )
 
 
@@ -118,10 +123,10 @@ def _metadata_text(metadata: dict[str, Any], name: str) -> str:
     text = str(value).strip()
     if _looks_like_hex(text):
         try:
-            return bytes.fromhex(text).decode("utf-8").strip()
+            text = bytes.fromhex(text).decode("utf-8").strip()
         except ValueError:
-            return text
-    return text
+            pass
+    return "" if text.casefold() in UNKNOWN_METADATA else text
 
 
 def _looks_like_hex(value: str) -> bool:

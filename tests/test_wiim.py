@@ -41,6 +41,36 @@ def test_parse_track_reads_hex_metadata_from_player_status_fallback():
     assert track.album == "Album"
 
 
+def test_parse_track_treats_wiim_unknown_placeholder_as_missing_metadata():
+    response = {
+        "metaData": {
+            "album": "unknow",
+            "title": "POOLSIDE",
+            "artist": "unknow",
+        }
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.artist == ""
+    assert track.album is None
+    assert track.title == "POOLSIDE"
+
+
+def test_parse_track_treats_hex_encoded_unknown_as_missing_metadata():
+    response = {
+        "Title": "556E6B6E6F776E",
+        "Artist": "556E6B6E6F776E",
+        "Album": "556E6B6E6F776E",
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.artist == ""
+    assert track.title == ""
+    assert track.album is None
+
+
 def test_parse_player_status_converts_numeric_fields():
     status = parse_player_status(
         {"status": "play", "curpos": "184919", "totlen": "210000", "mode": "32"}
@@ -171,3 +201,17 @@ def test_safe_parse_track_returns_empty_track_for_failed_metadata_response():
     assert track.artist == ""
     assert track.title == ""
     assert track.album is None
+
+
+def test_parse_track_exposes_the_album_art_uri():
+    response = {
+        "metaData": {
+            "artist": "unknow",
+            "title": "POOLSIDE",
+            "albumArtURI": "https://media2.ntslive.co.uk/crop/800x800/art.jpeg",
+        }
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.art_uri == "https://media2.ntslive.co.uk/crop/800x800/art.jpeg"

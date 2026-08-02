@@ -191,6 +191,7 @@ def parse_didl_track(metadata: str, duration_ms: int | None = None) -> Track:
         title=_didl_text(root, "title"),
         album=_optional_text(_didl_text(root, "album")),
         duration_ms=duration_ms,
+        art_uri=_optional_text(_didl_text(root, "albumArtURI")),
     )
 
 

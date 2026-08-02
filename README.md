@@ -132,6 +132,34 @@ The pending queue and duplicate protection history are stored locally, so
 restarting the app does not lose completed plays or resubmit recent tracks.
 Matching multi-room observations collapse into one queued play.
 
+## NTS Radio Infinite Mixtapes
+
+An NTS Infinite Mixtape is one continuous stream, so a WiiM reports the mixtape
+name (`ISLAND TIME`, `POOLSIDE`) as the track title and never changes it. The
+track NTS is actually playing is published separately, as ICY `StreamTitle`
+metadata on the mixtape stream, formatted as `ARTIST • TITLE` or
+`Artist - Title`.
+
+How that string reaches the WiiM depends on how you play it:
+
+- AirPlay from the NTS app forwards it into the WiiM's `artist` field, so the
+  device reports the mixtape name as the title and the whole `ARTIST • TITLE`
+  string as the artist.
+- Chromecast drops it entirely, leaving the WiiM with no track metadata at all.
+
+The scrobbler recognises mixtape playback by matching the reported title against
+the NTS mixtape catalogue, then takes the track from the device's `artist` field
+when it is there and reads the mixtape's stream metadata when it is not. Either
+way Last.fm receives the real artist and title rather than the mixtape name.
+
+When NTS publishes no track — between tracks, or when it sends an episode credit
+(`JACK SAPSED, ISLAND TIME VOL 17`) or a broadcast date (`26 Jul 2026`) instead
+— nothing is scrobbled for that play. NTS's track feed does go quiet for long
+stretches, and no scrobbles happen while it is.
+
+WiiM firmware writes `unknow` into metadata fields it has no value for. That is
+treated as missing metadata, not as an artist named `unknow`.
+
 ## Tray App
 
 Run the Windows tray app:

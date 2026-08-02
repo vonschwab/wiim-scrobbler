@@ -193,3 +193,31 @@ def test_stop_reports_stopping_when_thread_does_not_exit():
 
     assert runner.status == RunnerStatus.STOPPING
     assert runner.latest_message == "Stopping"
+
+
+def test_from_config_shares_one_nts_resolver_across_devices(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+lastfm:
+  api_key: "key"
+  shared_secret: "secret"
+  username: "listener"
+
+devices:
+  - name: "Kitchen"
+    host: "https://192.168.1.10"
+  - name: "Bedroom"
+    host: "https://192.168.1.11"
+""",
+        encoding="utf-8",
+    )
+
+    runner = BackgroundScrobblerRunner.from_config(
+        str(config_path), dry_run=True, state_path=tmp_path / "state.json"
+    )
+
+    resolvers = [poller.nts for poller in runner.pollers]
+
+    assert resolvers[0] is not None
+    assert all(resolver is resolvers[0] for resolver in resolvers)

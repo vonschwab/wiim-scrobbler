@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .lastfm import LastFmClient
 from .models import Track
+from .nts import NtsResolver
 from .state import PendingScrobble, ScrobbleState
 from .wiim import WiimClient
 
@@ -48,6 +49,7 @@ class DeviceScrobbler:
         dry_run: bool = False,
         state: ScrobbleState | None = None,
         settlement_seconds: int = 90,
+        nts: NtsResolver | None = None,
         clock=time.time,
     ) -> None:
         self.name = name
@@ -56,6 +58,7 @@ class DeviceScrobbler:
         self.dry_run = dry_run
         self.state = state
         self.settlement_seconds = settlement_seconds
+        self.nts = nts
         self._clock = clock
         self.session: TrackSession | None = None
 
@@ -67,7 +70,7 @@ class DeviceScrobbler:
             self.session = None
             return self._flush_due_pending(now)
 
-        track = self.wiim.current_track(duration_ms=status.duration_ms)
+        track = self._resolve(self.wiim.current_track(duration_ms=status.duration_ms))
         if not track.artist or not track.title:
             return self._flush_due_pending(now) or (
                 f"{self.name}: playing, but WiiM did not expose artist/title"
@@ -85,6 +88,12 @@ class DeviceScrobbler:
 
         self.session.observations += 1
         return self._flush_due_pending(now)
+
+    def _resolve(self, track: Track) -> Track:
+        if self.nts is None:
+            return track
+        resolved = self.nts.resolve(track)
+        return track if resolved is None else resolved
 
     def _queue_session(self, now: int) -> None:
         if (
