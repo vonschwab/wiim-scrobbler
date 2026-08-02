@@ -4,11 +4,17 @@ import json
 from typing import Any
 
 import requests
+from requests import RequestException
 import urllib3
 
 from .models import PlayerStatus, Track
+from .upnp import AVTransportClient
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# WiiM firmware writes these into metadata fields it has no value for. The
+# misspelling is the device's, not a typo.
+UNKNOWN_METADATA = {"unknow", "unknown"}
 
 
 class WiimClient:
@@ -16,27 +22,52 @@ class WiimClient:
         self, host: str, timeout: float = 5.0, verify_tls: bool = False
     ) -> None:
         self.host = host
-        self.base_url = _base_url(host)
+        self.base_urls = _base_urls(host)
+        self.base_url = self.base_urls[0]
         self.timeout = timeout
         self.verify_tls = verify_tls
+        self._upnp: AVTransportClient | None = None
 
     def command(self, command: str) -> Any:
-        url = f"{self.base_url}/httpapi.asp"
-        response = requests.get(
-            url,
-            params={"command": command},
-            timeout=self.timeout,
-            verify=self.verify_tls,
-        )
+        last_error: RequestException | None = None
+        for base_url in self.base_urls:
+            url = f"{base_url}/httpapi.asp"
+            try:
+                response = requests.get(
+                    url,
+                    params={"command": command},
+                    timeout=self.timeout,
+                    verify=self.verify_tls,
+                )
+            except RequestException as exc:
+                last_error = exc
+                continue
+            self.base_url = base_url
+            break
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("No WiiM base URLs configured")
         response.raise_for_status()
         return load_json_response(response)
 
     def player_status(self) -> PlayerStatus:
-        return parse_player_status(self.command("getPlayerStatus"))
+        try:
+            return parse_player_status(self.command("getPlayerStatus"))
+        except RequestException:
+            return self._upnp_client().player_status()
 
     def current_track(self, duration_ms: int | None = None) -> Track:
-        metadata = self.command("getMetaInfo")
-        return safe_parse_track(metadata, duration_ms=duration_ms)
+        try:
+            metadata = self.command("getMetaInfo")
+            return safe_parse_track(metadata, duration_ms=duration_ms)
+        except RequestException:
+            return self._upnp_client().current_track(duration_ms=duration_ms)
+
+    def _upnp_client(self) -> AVTransportClient:
+        if self._upnp is None:
+            self._upnp = AVTransportClient(self.host, timeout=self.timeout)
+        return self._upnp
 
 
 def parse_player_status(response: dict[str, Any]) -> PlayerStatus:
@@ -58,6 +89,7 @@ def parse_track(response: dict[str, Any], duration_ms: int | None) -> Track:
         title=_metadata_text(metadata, "title"),
         album=_optional_str(_metadata_text(metadata, "album")),
         duration_ms=duration_ms,
+        art_uri=_optional_str(_metadata_text(metadata, "albumArtURI")),
     )
 
 
@@ -91,10 +123,10 @@ def _metadata_text(metadata: dict[str, Any], name: str) -> str:
     text = str(value).strip()
     if _looks_like_hex(text):
         try:
-            return bytes.fromhex(text).decode("utf-8").strip()
+            text = bytes.fromhex(text).decode("utf-8").strip()
         except ValueError:
-            return text
-    return text
+            pass
+    return "" if text.casefold() in UNKNOWN_METADATA else text
 
 
 def _looks_like_hex(value: str) -> bool:
@@ -104,10 +136,17 @@ def _looks_like_hex(value: str) -> bool:
 
 
 def _base_url(host: str) -> str:
+    return _base_urls(host)[0]
+
+
+def _base_urls(host: str) -> list[str]:
     normalized = host.strip().rstrip("/")
-    if normalized.startswith(("http://", "https://")):
-        return normalized
-    return f"https://{normalized}"
+    if normalized.startswith("http://"):
+        return [normalized]
+    if normalized.startswith("https://"):
+        fallback = "http://" + normalized[len("https://") :]
+        return [normalized, fallback]
+    return [f"https://{normalized}", f"http://{normalized}"]
 
 
 def load_json_response(response: Any) -> Any:

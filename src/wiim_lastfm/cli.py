@@ -4,9 +4,11 @@ import argparse
 import sys
 import time
 
-from .config import ConfigError, get_devices, load_config
+from .config import ConfigError, get_devices, get_settlement_seconds, load_config
 from .lastfm import LastFmClient
+from .runner import default_state_path
 from .scrobbler import DeviceScrobbler
+from .state import ScrobbleState
 from .upnp import PlayQueueClient
 from .wiim import WiimClient
 
@@ -123,8 +125,17 @@ def auth(config_path: str, token: str | None = None) -> int:
 def run(config_path: str, interval: float, dry_run: bool) -> int:
     config = load_config(config_path)
     lastfm = _lastfm_from_config(config, require_session=not dry_run)
+    state = ScrobbleState(default_state_path())
+    settlement_seconds = get_settlement_seconds(config)
     scrobblers = [
-        DeviceScrobbler(device.name, WiimClient(device.host), lastfm, dry_run=dry_run)
+        DeviceScrobbler(
+            device.name,
+            WiimClient(device.host),
+            lastfm,
+            dry_run=dry_run,
+            state=state,
+            settlement_seconds=settlement_seconds,
+        )
         for device in get_devices(config)
     ]
 
@@ -149,6 +160,7 @@ def _lastfm_from_config(
     api_key = str(lastfm_config.get("api_key") or "")
     shared_secret = str(lastfm_config.get("shared_secret") or "")
     session_key = lastfm_config.get("session_key")
+    username = str(lastfm_config.get("username") or "")
 
     if not api_key:
         raise ConfigError("lastfm.api_key is required")
@@ -161,6 +173,7 @@ def _lastfm_from_config(
         api_key=api_key,
         shared_secret=shared_secret,
         session_key=str(session_key) if session_key else None,
+        username=username or None,
     )
 
 

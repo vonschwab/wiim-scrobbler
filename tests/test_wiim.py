@@ -1,3 +1,5 @@
+import requests
+
 from wiim_lastfm.wiim import (
     WiimClient,
     load_json_response,
@@ -39,6 +41,36 @@ def test_parse_track_reads_hex_metadata_from_player_status_fallback():
     assert track.album == "Album"
 
 
+def test_parse_track_treats_wiim_unknown_placeholder_as_missing_metadata():
+    response = {
+        "metaData": {
+            "album": "unknow",
+            "title": "POOLSIDE",
+            "artist": "unknow",
+        }
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.artist == ""
+    assert track.album is None
+    assert track.title == "POOLSIDE"
+
+
+def test_parse_track_treats_hex_encoded_unknown_as_missing_metadata():
+    response = {
+        "Title": "556E6B6E6F776E",
+        "Artist": "556E6B6E6F776E",
+        "Album": "556E6B6E6F776E",
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.artist == ""
+    assert track.title == ""
+    assert track.album is None
+
+
 def test_parse_player_status_converts_numeric_fields():
     status = parse_player_status(
         {"status": "play", "curpos": "184919", "totlen": "210000", "mode": "32"}
@@ -54,12 +86,83 @@ def test_client_uses_https_base_url_when_scheme_is_provided():
     client = WiimClient("https://192.168.1.97")
 
     assert client.base_url == "https://192.168.1.97"
+    assert client.base_urls == ["https://192.168.1.97", "http://192.168.1.97"]
 
 
-def test_client_defaults_plain_host_to_https_for_current_wiim_firmware():
+def test_client_tries_https_then_http_for_plain_host():
     client = WiimClient("192.168.1.97")
 
     assert client.base_url == "https://192.168.1.97"
+    assert client.base_urls == ["https://192.168.1.97", "http://192.168.1.97"]
+
+
+def test_client_uses_only_explicit_http_base_url():
+    client = WiimClient("http://192.168.1.97")
+
+    assert client.base_url == "http://192.168.1.97"
+    assert client.base_urls == ["http://192.168.1.97"]
+
+
+def test_command_falls_back_to_http_when_https_connection_fails(monkeypatch):
+    calls = []
+
+    class Response:
+        content = b'{"status":"stop","curpos":"0","totlen":"0"}'
+
+        def json(self):
+            return {"status": "stop", "curpos": "0", "totlen": "0"}
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, params, timeout, verify):
+        calls.append(url)
+        if url.startswith("https://"):
+            raise requests.ConnectionError("connection refused")
+        return Response()
+
+    monkeypatch.setattr("wiim_lastfm.wiim.requests.get", fake_get)
+    client = WiimClient("https://192.168.1.179")
+
+    assert client.command("getPlayerStatus") == {
+        "status": "stop",
+        "curpos": "0",
+        "totlen": "0",
+    }
+    assert calls == [
+        "https://192.168.1.179/httpapi.asp",
+        "http://192.168.1.179/httpapi.asp",
+    ]
+    assert client.base_url == "http://192.168.1.179"
+
+
+def test_player_status_uses_upnp_when_http_api_is_unavailable(monkeypatch):
+    class UpnpFallback:
+        def player_status(self):
+            return parse_player_status(
+                {"status": "play", "curpos": "72000", "totlen": "222000", "mode": "upnp"}
+            )
+
+        def current_track(self, duration_ms=None):
+            return parse_track(
+                {"title": "Shadow Bloom", "artist": "Florist", "album": "Jellywish"},
+                duration_ms=duration_ms,
+            )
+
+    def failing_get(url, params, timeout, verify):
+        raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr("wiim_lastfm.wiim.requests.get", failing_get)
+    monkeypatch.setattr("wiim_lastfm.wiim.AVTransportClient", lambda host, timeout: UpnpFallback())
+    client = WiimClient("https://192.168.1.179")
+
+    status = client.player_status()
+    track = client.current_track(duration_ms=status.duration_ms)
+
+    assert status.is_playing is True
+    assert status.position_ms == 72_000
+    assert track.artist == "Florist"
+    assert track.title == "Shadow Bloom"
 
 
 def test_client_disables_tls_verification_for_self_signed_wiim_certificates():
@@ -98,3 +201,17 @@ def test_safe_parse_track_returns_empty_track_for_failed_metadata_response():
     assert track.artist == ""
     assert track.title == ""
     assert track.album is None
+
+
+def test_parse_track_exposes_the_album_art_uri():
+    response = {
+        "metaData": {
+            "artist": "unknow",
+            "title": "POOLSIDE",
+            "albumArtURI": "https://media2.ntslive.co.uk/crop/800x800/art.jpeg",
+        }
+    }
+
+    track = parse_track(response, duration_ms=None)
+
+    assert track.art_uri == "https://media2.ntslive.co.uk/crop/800x800/art.jpeg"

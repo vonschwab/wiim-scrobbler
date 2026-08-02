@@ -18,11 +18,13 @@ class LastFmClient:
         api_key: str,
         shared_secret: str,
         session_key: str | None = None,
+        username: str | None = None,
         timeout: float = 10.0,
     ) -> None:
         self.api_key = api_key
         self.shared_secret = shared_secret
         self.session_key = session_key
+        self.username = username
         self.timeout = timeout
 
     def sign(self, params: dict[str, Any]) -> str:
@@ -69,6 +71,48 @@ class LastFmClient:
         if track.duration_ms:
             params["duration"] = track.duration_ms // 1000
         self._signed_post(params, require_session=True)
+
+    def has_recent_scrobble(
+        self, track: Track, started_at: int, window_seconds: int = 600
+    ) -> bool:
+        if not self.username:
+            return False
+
+        response = requests.get(
+            self.api_root,
+            params={
+                "method": "user.getrecenttracks",
+                "user": self.username,
+                "api_key": self.api_key,
+                "format": "json",
+                "limit": 20,
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if "error" in data:
+            raise RuntimeError(f"Last.fm error {data['error']}: {data.get('message')}")
+
+        recent_tracks = data.get("recenttracks", {}).get("track", [])
+        if isinstance(recent_tracks, dict):
+            recent_tracks = [recent_tracks]
+
+        expected_artist = track.artist.strip().casefold()
+        expected_title = track.title.strip().casefold()
+        for recent_track in recent_tracks:
+            artist = recent_track.get("artist", {}).get("#text", "")
+            title = recent_track.get("name", "")
+            timestamp = recent_track.get("date", {}).get("uts")
+            if not timestamp:
+                continue
+            if (
+                artist.strip().casefold() == expected_artist
+                and title.strip().casefold() == expected_title
+                and abs(int(timestamp) - started_at) <= window_seconds
+            ):
+                return True
+        return False
 
     def _signed_post(
         self, params: dict[str, Any], require_session: bool = False
