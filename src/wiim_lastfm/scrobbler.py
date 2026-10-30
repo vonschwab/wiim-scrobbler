@@ -70,15 +70,23 @@ class DeviceScrobbler:
             self.session = None
             return self._flush_due_pending(now)
 
-        track = self._resolve(self.wiim.current_track(duration_ms=status.duration_ms))
+        raw_track = self.wiim.current_track(duration_ms=status.duration_ms)
+        resolved = self.nts.resolve(raw_track) if self.nts is not None else None
+        track = raw_track if resolved is None else resolved
         if not track.artist or not track.title:
+            if resolved is not None:
+                self._queue_session(now)
+                self.session = None
             return self._flush_due_pending(now) or (
                 f"{self.name}: playing, but WiiM did not expose artist/title"
             )
 
-        if self.session is None or self.session.track.key != track.key:
+        if self.session is None or self.session.track.song_key != track.song_key:
             self._queue_session(now)
-            started_at = int(now - (status.position_ms / 1000))
+            # NTS position is relative to the show, not the individual song.
+            started_at = now if resolved is not None else int(
+                now - (status.position_ms / 1000)
+            )
             self.session = TrackSession(track=track, started_at=started_at)
             self._now_playing(track)
             self.session.now_playing_sent = True
@@ -88,12 +96,6 @@ class DeviceScrobbler:
 
         self.session.observations += 1
         return self._flush_due_pending(now)
-
-    def _resolve(self, track: Track) -> Track:
-        if self.nts is None:
-            return track
-        resolved = self.nts.resolve(track)
-        return track if resolved is None else resolved
 
     def _queue_session(self, now: int) -> None:
         if (
@@ -121,29 +123,35 @@ class DeviceScrobbler:
 
     def _submit_pending(self, pending: PendingScrobble) -> str:
         track = pending.track
-        if self.state and (
-            self.state.has_recent_scrobble(track, pending.started_at)
-            or self.state.has_consecutive_scrobble(track)
-        ):
+        if self.state.has_recent_scrobble(track, pending.started_at):
             self.state.discard_pending(pending)
             return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
         try:
-            if self.lastfm.has_recent_scrobble(track, pending.started_at):
-                self.state.discard_pending(pending)
-                return (
-                    f"{self.name}: skipped Last.fm duplicate "
-                    f"{track.artist} - {track.title}"
-                )
+            duplicate = self.lastfm.has_recent_scrobble(track, pending.started_at)
         except Exception as exc:
             logging.warning("%s: could not check Last.fm history: %s", self.name, exc)
-        self._scrobble(track, pending.started_at)
-        self.state.complete_pending(pending)
+            return f"{self.name}: deferred scrobble until Last.fm duplicate check succeeds"
+        if self.lastfm.latest_scrobble is not None:
+            self.state.observe_lastfm(*self.lastfm.latest_scrobble)
+        if duplicate:
+            self.state.discard_pending(pending)
+            return f"{self.name}: skipped Last.fm duplicate {track.artist} - {track.title}"
+        if self.state.has_consecutive_scrobble(track):
+            self.state.discard_pending(pending)
+            return f"{self.name}: skipped duplicate {track.artist} - {track.title}"
+        self.state.begin_submission(pending)
+        try:
+            canonical = self._scrobble(track, pending.started_at)
+        except Exception as exc:
+            logging.warning("%s: submission outcome unconfirmed; saved for review, will not resend: %s", self.name, exc)
+            return f"{self.name}: held unconfirmed submission {track.artist} - {track.title}"
+        self.state.complete_pending(pending, canonical_track=canonical)
         return f"{self.name}: scrobbled {track.artist} - {track.title}"
 
     def _now_playing(self, track: Track) -> None:
         if not self.dry_run:
             self.lastfm.update_now_playing(track)
 
-    def _scrobble(self, track: Track, timestamp: int) -> None:
+    def _scrobble(self, track: Track, timestamp: int) -> Track | None:
         if not self.dry_run:
-            self.lastfm.scrobble(track, timestamp=timestamp)
+            return self.lastfm.scrobble(track, timestamp=timestamp)

@@ -63,7 +63,7 @@ class BackgroundScrobblerRunner:
         settlement_seconds = get_settlement_seconds(config)
         # One resolver for every device so the NTS catalog and stream reads are
         # fetched once, not once per WiiM.
-        nts = NtsResolver()
+        nts = NtsResolver(show_cache_path=state.path.with_name("nts-shows.json"))
         return cls(
             [
                 DeviceScrobbler(

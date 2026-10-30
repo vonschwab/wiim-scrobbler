@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import copy
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,21 +23,19 @@ class ScrobbleState:
         self,
         path: str | Path,
         duplicate_window_seconds: int = 120,
-        consecutive_duplicate_window_seconds: int = 6 * 60 * 60,
         retention_seconds: int = 14 * 24 * 60 * 60,
     ) -> None:
         self.path = Path(path)
         self.duplicate_window_seconds = duplicate_window_seconds
-        self.consecutive_duplicate_window_seconds = consecutive_duplicate_window_seconds
         self.retention_seconds = retention_seconds
         self._data = self._load()
 
     def has_recent_scrobble(self, track: Track, started_at: int) -> bool:
         key = _track_key(track)
-        for item in self._data["scrobbles"]:
+        for item in self._data["scrobbles"] + self._data["uncertain"]:
             if not isinstance(item, dict):
                 continue
-            if item.get("track_key") != key:
+            if key not in (item.get("track_key"), item.get("canonical_key")):
                 continue
             item_started_at = _safe_int(item.get("started_at"))
             if item_started_at is None:
@@ -46,25 +46,21 @@ class ScrobbleState:
 
     def has_consecutive_scrobble(self, track: Track, now: int | None = None) -> bool:
         key = _track_key(track)
-        current_time = now or int(time.time())
-        for item in reversed(self._data["scrobbles"]):
-            if not isinstance(item, dict):
-                continue
-            item_key = item.get("track_key")
-            if not isinstance(item_key, str):
-                continue
-            recorded_at = _safe_int(item.get("recorded_at"))
-            if recorded_at is None:
-                continue
-            if current_time - recorded_at > self.consecutive_duplicate_window_seconds:
-                return False
-            return item_key == key
-        return False
+        # Keep both the last confirmed song and any last uncertain attempt.
+        # Neither expires: silence or an app restart is not an intervening song.
+        return any(
+            isinstance(item, dict)
+            and key in (item.get("track_key"), item.get("canonical_key"))
+            for item in (self._data.get("last_scrobble"), self._data.get("last_attempt"))
+        )
 
     def record_scrobble(
         self, track: Track, started_at: int, now: int | None = None
     ) -> None:
-        self._data["scrobbles"].append(_scrobble_item(track, started_at, now))
+        item = _scrobble_item(track, started_at, now)
+        self._data["scrobbles"].append(item)
+        self._data["last_scrobble"] = item
+        self._data["last_attempt"] = item
         self.prune(now=now)
         self.save()
 
@@ -115,14 +111,51 @@ class ScrobbleState:
         self.save()
 
     def complete_pending(
-        self, pending: PendingScrobble, now: int | None = None
+        self, pending: PendingScrobble, now: int | None = None,
+        canonical_track: Track | None = None,
     ) -> None:
         self._remove_pending(pending)
-        self._data["scrobbles"].append(
-            _scrobble_item(pending.track, pending.started_at, now)
-        )
+        item = _scrobble_item(pending.track, pending.started_at, now)
+        if canonical_track is not None:
+            item["canonical_key"] = _track_key(canonical_track)
+        self._data["scrobbles"].append(item)
+        self._data["last_scrobble"] = item
+        self._data["last_attempt"] = item
+        self._data["uncertain"] = [x for x in self._data["uncertain"] if not (
+            x.get("track_key") == _track_key(pending.track)
+            and x.get("started_at") == pending.started_at
+        )]
         self.prune(now=now)
         self.save()
+
+    def begin_submission(self, pending: PendingScrobble) -> None:
+        """Persist an at-most-once attempt before sending anything to Last.fm.
+
+        A crash or ambiguous network failure leaves it in uncertain, never in
+        the automatic retry queue. This deliberately favours avoiding doubles.
+        """
+        previous = copy.deepcopy(self._data)
+        item = _scrobble_item(pending.track, pending.started_at, None)
+        self._remove_pending(pending)
+        self._data["uncertain"].append(item)
+        self._data["last_attempt"] = item
+        try:
+            self.save()
+        except OSError:
+            self._data = previous
+            raise
+
+    def observe_lastfm(self, track: Track, started_at: int) -> None:
+        """Notice intervening songs submitted by other connected services."""
+        latest = max(
+            (_safe_int(item.get("started_at")) or 0)
+            for item in (self._data.get("last_scrobble") or {}, self._data.get("last_attempt") or {})
+        )
+        if started_at > latest:
+            item = _scrobble_item(track, started_at, None)
+            self._data["last_scrobble"] = item
+            self._data["last_attempt"] = item
+            self.save()
 
     def prune(self, now: int | None = None) -> None:
         cutoff = (now or int(time.time())) - self.retention_seconds
@@ -145,24 +178,38 @@ class ScrobbleState:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        temporary = self.path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(self._data, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(self.path)
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"version": 2, "scrobbles": [], "pending": []}
+            return {"version": 3, "scrobbles": [], "pending": [], "uncertain": []}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {"version": 2, "scrobbles": [], "pending": []}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("Cannot read duplicate-protection state; refusing to reset it") from exc
         if not isinstance(data, dict):
-            return {"version": 2, "scrobbles": [], "pending": []}
+            raise ValueError("Invalid duplicate-protection state")
         scrobbles = data.get("scrobbles")
         if not isinstance(scrobbles, list):
             data["scrobbles"] = []
         pending = data.get("pending")
         if not isinstance(pending, list):
             data["pending"] = []
-        data["version"] = 2
+        if not isinstance(data.get("uncertain"), list):
+            data["uncertain"] = []
+        # Upgrade album-dependent v1/v2 identities without losing queued plays.
+        for item in data["scrobbles"] + data["pending"] + data["uncertain"]:
+            if isinstance(item, dict) and isinstance(item.get("artist"), str) and isinstance(item.get("title"), str):
+                item["track_key"] = _track_key(Track(item["artist"], item["title"], None, None))
+        if not isinstance(data.get("last_scrobble"), dict):
+            data["last_scrobble"] = next((item for item in reversed(data["scrobbles"])
+                if isinstance(item, dict) and item.get("artist") and item.get("title")), None)
+        data["version"] = 3
         return data
 
     def _remove_pending(self, pending: PendingScrobble) -> None:
@@ -179,10 +226,7 @@ class ScrobbleState:
 
 
 def _track_key(track: Track) -> str:
-    album = track.album.casefold().strip() if track.album else ""
-    return "\0".join(
-        [track.artist.casefold().strip(), track.title.casefold().strip(), album]
-    )
+    return "\0".join(track.song_key)
 
 
 def _scrobble_item(track: Track, started_at: int, now: int | None) -> dict[str, Any]:

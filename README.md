@@ -7,8 +7,10 @@ local WiiM API to detect playback and submit tracks to Last.fm.
 
 ### Windows installer
 
-Download and run the latest `wiim-scrobbler-setup-*.exe` from the GitHub
-release. The installer adds `WiiM Scrobbler` to the Start Menu and can
+Download and run the latest `wiim-scrobbler-setup-*.exe` from the
+[GitHub releases](https://github.com/vonschwab/wiim-scrobbler/releases/latest).
+See [the changelog](CHANGELOG.md) for changes included in each installer.
+The installer adds `WiiM Scrobbler` to the Start Menu and can
 optionally create a startup shortcut so the tray app starts when you sign in.
 
 The installer can write your user config during setup. It asks for:
@@ -132,6 +134,21 @@ The pending queue and duplicate protection history are stored locally, so
 restarting the app does not lose completed plays or resubmit recent tracks.
 Matching multi-room observations collapse into one queued play.
 
+Duplicate protection compares artist and song, ignoring album differences,
+capitalisation, and redundant whitespace. The last confirmed song is retained
+across restarts and does not expire, so the app never intentionally submits the
+same song consecutively. It also checks the latest completed Last.fm scrobble
+and recent matching plays before sending; the now-playing entry is excluded.
+An intervening song submitted by another service is taken into account.
+
+If Last.fm history cannot be checked, the play stays queued. Before a submission
+is sent, its attempt is saved atomically to disk. A timeout, crash, or unconfirmed
+response leaves the play in the `uncertain` list in `state.json` for review,
+outside the automatic retry queue. This deliberately favours avoiding duplicates
+over retrying a possibly accepted submission, and can omit a play if the request
+never arrived. The tray and command-line sender share a single-instance guard.
+Other applications can still submit their own duplicates independently.
+
 ## NTS Radio Infinite Mixtapes
 
 An NTS Infinite Mixtape is one continuous stream, so a WiiM reports the mixtape
@@ -159,6 +176,26 @@ stretches, and no scrobbles happen while it is.
 
 WiiM firmware writes `unknow` into metadata fields it has no value for. That is
 treated as missing metadata, not as an artist named `unknow`.
+
+NTS shows are also recognised by their NTS artwork. When AirPlay hides the
+artwork behind a local WiiM URL, the scrobbler checks the reported title against
+NTS's show and episode search. This works across show names, hosts, and archived
+episodes without a built-in list of shows. Full titles must match; loosely
+related search results are ignored. The device's `Artist - Song` or
+`Artist • Song` metadata is split into the real artist and song.
+
+Confirmed titles are cached in `%LOCALAPPDATA%\WiimScrobbler\nts-shows.json`
+and work after restarts or temporary NTS outages. New titles need NTS search
+to be available and indexed. Failed requests are retried after a minute;
+unmatched titles are checked again after five minutes. Episode dates, host
+credits, and missing song metadata on recognised shows are skipped: individual
+songs can only be scrobbled when NTS supplies their artist and title. The same
+recognition is used by both the tray app and the command-line scrobbler.
+
+NTS songs use the time they are first detected as their scrobble timestamp.
+The show's elapsed position and total duration do not describe individual
+songs, so they are not sent as song timing. Detection is normally within one
+polling interval; joining a show mid-song uses the time listening is detected.
 
 ## Tray App
 

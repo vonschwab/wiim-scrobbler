@@ -11,11 +11,10 @@ import pystray
 
 from .config import default_user_config_path, ensure_user_config
 from .runner import BackgroundScrobblerRunner
-from .single_instance import SingleInstance
+from .single_instance import MUTEX_NAME, SingleInstance
 
 
 APP_NAME = "WiiM Last.fm Scrobbler"
-MUTEX_NAME = "Local\\WiimScrobblerTray"
 
 
 def main(argv: list[str] | None = None) -> int:

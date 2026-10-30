@@ -1,4 +1,13 @@
 from pathlib import Path
+import re
+import tomllib
+
+
+def test_installer_version_matches_python_package():
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    installer = Path("packaging/wiim-scrobbler.iss").read_text(encoding="utf-8")
+    version = re.search(r'#define MyAppVersion "([^"]+)"', installer).group(1)
+    assert version == project["project"]["version"]
 
 
 def test_pyinstaller_spec_builds_tray_and_cli_entrypoints():

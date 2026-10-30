@@ -1,5 +1,5 @@
 #define MyAppName "WiiM Scrobbler"
-#define MyAppVersion "0.1.3"
+#define MyAppVersion "0.1.4"
 #define MyAppPublisher "vonschwab"
 #define MyAppURL "https://github.com/vonschwab/wiim-scrobbler"
 #define MyAppExeName "WiiM Scrobbler.exe"

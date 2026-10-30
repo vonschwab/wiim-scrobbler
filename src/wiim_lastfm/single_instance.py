@@ -5,6 +5,7 @@ from ctypes import wintypes
 
 
 ERROR_ALREADY_EXISTS = 183
+MUTEX_NAME = "Local\\WiimScrobblerTray"
 
 
 class SingleInstance:
@@ -38,6 +39,7 @@ class SingleInstance:
 
     def __enter__(self) -> SingleInstance:
         if not self.acquire():
+            self.release()
             raise AlreadyRunningError(f"{self.name} is already running")
         return self
 

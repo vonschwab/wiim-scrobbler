@@ -4,6 +4,7 @@ from wiim_lastfm.models import Track
 from wiim_lastfm.nts import (
     Mixtape,
     NtsResolver,
+    lookup_show,
     parse_now_playing,
     parse_stream_title,
 )
@@ -348,3 +349,165 @@ def test_resolver_ignores_art_from_other_services():
     )
 
     assert resolver.resolve(track) is None
+
+
+@pytest.mark.parametrize("host", ["PAM & CHRIS KONTOS", "SPIRIT BLUE"])
+def test_early_bird_show_with_local_airplay_art(host):
+    resolver = NtsResolver(fetch_catalog=catalog_of(), fetch_now_playing=unreachable_stream, find_show=lambda title: True)
+    track = Track(
+        artist="Sakurai Keisuke - Tane O Maku",
+        title=f"THE EARLY BIRD SHOW W/ {host}",
+        album="unknow",
+        duration_ms=7_252_000,
+        art_uri="https://192.168.1.97/data/AirplayArtWorkData.jpeg",
+    )
+
+    assert resolver.resolve(track) == Track("Sakurai Keisuke", "Tane O Maku", None, None)
+
+
+def test_early_bird_show_broadcast_date_is_not_a_song():
+    resolver = NtsResolver(fetch_catalog=catalog_of(), fetch_now_playing=unreachable_stream, find_show=lambda title: True)
+    track = Track("28 Oct 2026", "THE EARLY BIRD SHOW W/ SPIRIT BLUE", None, 7_200_000)
+
+    assert resolver.resolve(track).artist == ""
+
+
+def test_other_radio_show_is_not_assumed_to_be_nts():
+    resolver = NtsResolver(fetch_catalog=catalog_of(), fetch_now_playing=unreachable_stream, find_show=lambda title: False)
+    track = Track("Artist - Song", "ANOTHER SHOW W/ SOMEONE", None, 7_200_000)
+
+    assert resolver.resolve(track) is None
+
+
+def local_airplay_track(title, artist="L’Rain - Elmyra"):
+    return Track(artist, title, None, 3_580_000,
+                 "https://192.168.1.97/data/AirplayArtWorkData.jpeg")
+
+
+@pytest.mark.parametrize("title", [
+    "ASTRAL GARDEN W/ NAILAH HUNTER", "THE EARLY BIRD SHOW W/ PAM & CHRIS KONTOS",
+    "SOUP TO NUTS", "A new show without a host marker", "Special: Guest Session 42",
+])
+def test_any_catalogued_show_title_is_supported(title):
+    queried = []
+    def find_show(value):
+        queried.append(value)
+        return True
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=find_show)
+
+    assert resolver.resolve(local_airplay_track(title)) == Track("L’Rain", "Elmyra", None, None)
+    assert queried == [title]
+
+
+@pytest.mark.parametrize("kind", ["show", "episode"])
+def test_lookup_matches_only_full_show_or_episode_title(monkeypatch, kind):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [
+                {"article_type": "show", "title": "Unrelated result"},
+                {"article_type": kind, "title": "Astral Garden w/ Nailah Hunter"},
+            ]}
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+    monkeypatch.setattr("wiim_lastfm.nts.requests.get", get)
+
+    assert lookup_show("ASTRAL GARDEN W/ NAILAH HUNTER") is True
+    assert calls[0][1]["params"]["version"] == 2
+    assert calls[0][1]["params"]["types[]"] == ["show", "episode"]
+
+
+@pytest.mark.parametrize("item", [
+    {"article_type": "show", "title": "Astral Garden w/ Someone Else"},
+    {"article_type": "artist", "title": "Astral Garden w/ Nailah Hunter"},
+    {"article_type": "track", "title": "Astral Garden w/ Nailah Hunter"},
+    None,
+])
+def test_lookup_rejects_loose_matches_and_non_shows(monkeypatch, item):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"results": [item]}
+    monkeypatch.setattr("wiim_lastfm.nts.requests.get", lambda *a, **k: Response())
+
+    assert lookup_show("ASTRAL GARDEN W/ NAILAH HUNTER") is False
+
+
+def test_lookup_normalises_html_unicode_and_whitespace(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{"article_type": "episode", "title": "Someone’s Show &amp; Guests"}]}
+    monkeypatch.setattr("wiim_lastfm.nts.requests.get", lambda *a, **k: Response())
+
+    assert lookup_show("  SOMEONE'S   SHOW & GUESTS  ") is True
+
+
+def test_known_shows_survive_restart_and_outage(tmp_path):
+    path = tmp_path / "nts-shows.json"
+    calls = []
+    def find_show(title):
+        calls.append(title)
+        return True
+    track = local_airplay_track("Astral Garden w/ Nailah Hunter")
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=find_show, show_cache_path=path)
+    resolver.resolve(track)
+    resolver.resolve(local_airplay_track(track.title, "June McDoom - Without You"))
+    assert calls == [track.title]
+
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=unreachable_stream, show_cache_path=path)
+    assert resolver.resolve(track).title == "Elmyra"
+
+
+def test_lookup_outage_skips_bad_metadata_and_retries():
+    now = [1_000]
+    calls = []
+    def find_show(title):
+        calls.append(title)
+        if len(calls) == 1: raise ConnectionError("offline")
+        return True
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=find_show, clock=lambda: now[0])
+    track = local_airplay_track("Astral Garden w/ Nailah Hunter")
+    assert resolver.resolve(track).artist == ""
+    now[0] += 20
+    assert resolver.resolve(track).artist == ""
+    assert len(calls) == 1
+    now[0] += 41
+    assert resolver.resolve(track).artist == "L’Rain"
+    assert len(calls) == 2
+
+
+def test_newly_indexed_episode_recovers_after_negative_cache_expires():
+    now = [1_000]
+    found = [False]
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=lambda title: found[0], clock=lambda: now[0])
+    track = local_airplay_track("A brand new episode")
+    assert resolver.resolve(track) is None
+    found[0] = True
+    now[0] += 301
+    assert resolver.resolve(track).artist == "L’Rain"
+
+
+def test_normal_music_with_hyphenated_artist_and_album_is_untouched():
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=unreachable_stream)
+    track = Track("Artist - Alias", "Song", "Album", 250_000)
+    assert resolver.resolve(track) is None
+
+
+def test_non_nts_airplay_is_untouched():
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=lambda title: False)
+    assert resolver.resolve(local_airplay_track("A regular song", "Artist")) is None
+
+
+@pytest.mark.parametrize("artist", ["26 Oct 2026", "", "unknow", "Nailah Hunter"])
+def test_confirmed_show_without_individual_song_is_skipped(artist):
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=lambda title: True)
+    assert resolver.resolve(local_airplay_track("Astral Garden w/ Nailah Hunter", artist)).artist == ""
+
+
+def test_corrupt_show_cache_recovers(tmp_path):
+    path = tmp_path / "nts-shows.json"
+    path.write_text("invalid json", encoding="utf-8")
+    resolver = NtsResolver(fetch_catalog=catalog_of(), find_show=lambda title: True, show_cache_path=path)
+    assert resolver.resolve(local_airplay_track("Any show")).title == "Elmyra"

@@ -1,6 +1,7 @@
 from wiim_lastfm.models import Track
 from wiim_lastfm.scrobbler import DeviceScrobbler, ScrobbleDecision, should_scrobble
 from wiim_lastfm.state import PendingScrobble, ScrobbleState
+import pytest
 
 
 class StaticWiim:
@@ -37,6 +38,7 @@ class LastFmSpy:
         self.now_playing = []
         self.scrobbles = []
         self.external_recent = False
+        self.latest_scrobble = None
 
     def update_now_playing(self, track):
         self.now_playing.append(track)
@@ -70,7 +72,10 @@ class FailingState:
     def discard_pending(self, pending):
         self.pending = None
 
-    def complete_pending(self, pending):
+    def begin_submission(self, pending):
+        self.pending = None
+
+    def complete_pending(self, pending, canonical_track=None):
         self.pending = None
         raise OSError("disk full")
 
@@ -371,3 +376,174 @@ def test_poll_once_keeps_device_metadata_when_resolver_declines():
     assert lastfm.now_playing == [
         Track("Orchid Mantis", "blank slate", "album", 240_000)
     ]
+
+
+def test_nts_show_songs_get_individual_timestamps_and_no_show_duration(tmp_path):
+    from wiim_lastfm.nts import NtsResolver
+
+    show = "THE EARLY BIRD SHOW W/ PAM & CHRIS KONTOS"
+    status = Status()
+    status.position_ms = 2_000_000
+    status.duration_ms = 7_252_000
+    wiim = StaticWiim(Track("Chen Min Yang - Theme 1（主題一）", show, "unknow", None), status)
+    now = [10_000]
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM", wiim, lastfm,
+        state=ScrobbleState(tmp_path / "state.json"),
+        nts=NtsResolver(fetch_catalog=lambda: [], find_show=lambda title: True),
+        clock=lambda: now[0], settlement_seconds=0,
+    )
+    scrobbler.poll_once()
+    now[0] += 20
+    status.position_ms += 20_000
+    scrobbler.poll_once()
+    now[0] += 160
+    status.position_ms += 160_000
+    wiim.track = Track("Sakurai Keisuke - Tane O Maku", show, "unknow", None)
+    scrobbler.poll_once()
+    scrobbler.poll_once()
+    now[0] += 180
+    wiim.status = IdleStatus()
+    scrobbler.poll_once()
+
+    assert lastfm.scrobbles == [
+        (Track("Chen Min Yang", "Theme 1（主題一）", None, None), 10_000),
+        (Track("Sakurai Keisuke", "Tane O Maku", None, None), 10_180),
+    ]
+
+
+def test_ordinary_track_keeps_position_based_timestamp():
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler(
+        "WiiM", StaticWiim(Track("Artist", "Song", None, None), Status()),
+        lastfm, nts=StubResolver(None), clock=lambda: 1_000,
+    )
+    scrobbler.poll_once()
+
+    assert scrobbler.session.started_at == 870
+
+
+def test_nts_metadata_gap_finishes_previous_song(tmp_path):
+    first = Track("Benedek", "Alpha Tape", None, None)
+    resolver = StubResolver(first)
+    lastfm = LastFmSpy()
+    now = [1_000]
+    scrobbler = DeviceScrobbler(
+        "WiiM", StaticWiim(first, Status()), lastfm,
+        state=ScrobbleState(tmp_path / "state.json"), nts=resolver,
+        clock=lambda: now[0], settlement_seconds=0,
+    )
+    scrobbler.poll_once()
+    scrobbler.poll_once()
+    resolver.resolved = Track("", "POOLSIDE", None, None)
+    now[0] += 100
+    scrobbler.poll_once()
+    scrobbler.poll_once()
+
+    assert lastfm.scrobbles == [(first, 1_000)]
+    assert scrobbler.session is None
+
+
+def queue_one(state, track, started_at=1_000):
+    state.queue_pending(track, started_at, queued_at=started_at + 100)
+    return state.due_pending(now=started_at + 200)[0]
+
+
+def test_failed_history_lookup_defers_without_sending(tmp_path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Artist", "Song", None, None)
+    pending = queue_one(state, track)
+    class OfflineHistory(LastFmSpy):
+        def has_recent_scrobble(self, *args): raise ConnectionError("offline")
+    lastfm = OfflineHistory()
+    scrobbler = DeviceScrobbler("WiiM", None, lastfm, state=state)
+    assert "deferred" in scrobbler._submit_pending(pending)
+    assert lastfm.scrobbles == []
+    assert state.due_pending(now=1_200) == [pending]
+
+
+def test_timeout_after_server_acceptance_is_never_resent_after_restart(tmp_path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Artist", "Song", None, None)
+    pending = queue_one(state, track)
+    class AcceptedThenTimeout(LastFmSpy):
+        def scrobble(self, track, timestamp=None):
+            super().scrobble(track, timestamp)
+            raise TimeoutError("response lost after server accepted")
+    lastfm = AcceptedThenTimeout()
+    scrobbler = DeviceScrobbler("WiiM", None, lastfm, state=state)
+    assert "held unconfirmed" in scrobbler._submit_pending(pending)
+    restored = ScrobbleState(state.path)
+    assert restored.due_pending(now=2_000) == []
+    # A restart can observe the same song with a much later start estimate.
+    pending_again = queue_one(restored, Track("Artist", "Song", "Other Album", None), 2_000)
+    scrobbler = DeviceScrobbler("WiiM", None, lastfm, state=restored)
+    assert "skipped duplicate" in scrobbler._submit_pending(pending_again)
+    assert len(lastfm.scrobbles) == 1
+
+
+def test_cannot_send_without_persisting_attempt(tmp_path, monkeypatch):
+    state = ScrobbleState(tmp_path / "state.json")
+    pending = queue_one(state, Track("Artist", "Song", None, None))
+    def fail(): raise OSError("disk full")
+    monkeypatch.setattr(state, "save", fail)
+    lastfm = LastFmSpy()
+    with pytest.raises(OSError):
+        DeviceScrobbler("WiiM", None, lastfm, state=state)._submit_pending(pending)
+    assert lastfm.scrobbles == []
+
+
+def test_crash_after_post_before_completion_save_does_not_retry(tmp_path, monkeypatch):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Artist", "Song", None, None)
+    pending = queue_one(state, track)
+    original_save = state.save
+    saves = []
+    def fail_on_completion():
+        saves.append(1)
+        if len(saves) == 2: raise OSError("disk full")
+        original_save()
+    monkeypatch.setattr(state, "save", fail_on_completion)
+    lastfm = LastFmSpy()
+    with pytest.raises(OSError):
+        DeviceScrobbler("WiiM", None, lastfm, state=state)._submit_pending(pending)
+    restored = ScrobbleState(state.path)
+    assert len(lastfm.scrobbles) == 1
+    assert restored.due_pending(now=2_000) == []
+    assert restored.has_consecutive_scrobble(track)
+
+
+def test_intervening_external_song_allows_local_song_again(tmp_path):
+    state = ScrobbleState(tmp_path / "state.json")
+    track = Track("Artist", "Song", None, None)
+    state.record_scrobble(track, 1_000, now=1_100)
+    pending = queue_one(state, track, 3_000)
+    lastfm = LastFmSpy()
+    lastfm.latest_scrobble = (Track("Artist", "Other Song", None, None), 2_000)
+    assert "scrobbled" in DeviceScrobbler("WiiM", None, lastfm, state=state)._submit_pending(pending)
+    assert len(lastfm.scrobbles) == 1
+
+
+def test_album_metadata_change_does_not_end_a_playback_session(tmp_path):
+    wiim = StaticWiim(Track("Artist", "Song", None, None), Status())
+    state = ScrobbleState(tmp_path / "state.json")
+    lastfm = LastFmSpy()
+    scrobbler = DeviceScrobbler("WiiM", wiim, lastfm, state=state, clock=lambda: 1_000)
+    scrobbler.poll_once()
+    scrobbler.poll_once()
+    wiim.track = Track("Artist", "Song", "Album now available", None)
+    scrobbler.poll_once()
+    assert len(lastfm.now_playing) == 1
+    assert state.due_pending(now=2_000) == []
+
+
+def test_album_variant_from_second_device_is_suppressed_after_restart(tmp_path):
+    state = ScrobbleState(tmp_path / "state.json")
+    lastfm = LastFmSpy()
+    first = queue_one(state, Track("Artist", "Song", "Album", None))
+    DeviceScrobbler("First", None, lastfm, state=state)._submit_pending(first)
+    state = ScrobbleState(state.path)
+    second = queue_one(state, Track(" ARTIST ", "song", None, None), 2_000)
+    assert "skipped duplicate" in DeviceScrobbler("Second", None, lastfm, state=state)._submit_pending(second)
+    assert len(lastfm.scrobbles) == 1

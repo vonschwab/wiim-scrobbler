@@ -6,9 +6,11 @@ import time
 
 from .config import ConfigError, get_devices, get_settlement_seconds, load_config
 from .lastfm import LastFmClient
+from .nts import NtsResolver
 from .runner import default_state_path
 from .scrobbler import DeviceScrobbler
 from .state import ScrobbleState
+from .single_instance import MUTEX_NAME, SingleInstance
 from .upnp import PlayQueueClient
 from .wiim import WiimClient
 
@@ -123,10 +125,18 @@ def auth(config_path: str, token: str | None = None) -> int:
 
 
 def run(config_path: str, interval: float, dry_run: bool) -> int:
+    if dry_run:
+        return _run(config_path, interval, dry_run)
+    with SingleInstance(MUTEX_NAME):
+        return _run(config_path, interval, dry_run)
+
+
+def _run(config_path: str, interval: float, dry_run: bool) -> int:
     config = load_config(config_path)
     lastfm = _lastfm_from_config(config, require_session=not dry_run)
     state = ScrobbleState(default_state_path())
     settlement_seconds = get_settlement_seconds(config)
+    nts = NtsResolver(show_cache_path=state.path.with_name("nts-shows.json"))
     scrobblers = [
         DeviceScrobbler(
             device.name,
@@ -135,6 +145,7 @@ def run(config_path: str, interval: float, dry_run: bool) -> int:
             dry_run=dry_run,
             state=state,
             settlement_seconds=settlement_seconds,
+            nts=nts,
         )
         for device in get_devices(config)
     ]
